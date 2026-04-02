@@ -80,7 +80,7 @@ fn bench_mixed_workload(c: &mut Criterion) {
 
         let mut i = 0u64;
         b.iter(|| {
-            if i % 5 == 0 {
+            if i.is_multiple_of(5) {
                 // 20% writes
                 let key = format!("key-{:010}", i);
                 store.put(key.as_bytes(), b"updated").unwrap();
