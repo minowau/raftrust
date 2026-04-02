@@ -15,7 +15,7 @@ jobs:
     name: Check, Lint, Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -24,9 +24,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Install protoc
-        uses: arduino/setup-protoc@v3
-        with:
-          version: "29.x"
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -46,16 +44,14 @@ jobs:
     needs: check
     if: github.ref == 'refs/heads/main'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
 
       - name: Install protoc
-        uses: arduino/setup-protoc@v3
-        with:
-          version: "29.x"
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
       - name: Run benchmarks
         run: cargo bench --workspace
