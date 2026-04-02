@@ -3,8 +3,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_server(false)
         .build_client(true)
         .compile_protos(
-            &["../../proto/kv.proto", "../../proto/admin.proto"],
-            &["../../proto"],
+            &["proto/kv.proto", "proto/admin.proto"],
+            &["proto"],
         )?;
     Ok(())
 }

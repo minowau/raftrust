@@ -1,0 +1,108 @@
+syntax = "proto3";
+package kv;
+
+service KvService {
+  rpc Get(GetRequest) returns (GetResponse);
+  rpc Put(PutRequest) returns (PutResponse);
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+  rpc Range(RangeRequest) returns (RangeResponse);
+  rpc Txn(TxnRequest) returns (TxnResponse);
+}
+
+message GetRequest {
+  bytes key = 1;
+  bool linearizable = 2;
+}
+
+message GetResponse {
+  bytes value = 1;
+  uint64 revision = 2;
+}
+
+message PutRequest {
+  bytes key = 1;
+  bytes value = 2;
+  int64 lease_id = 3;
+  int64 ttl_seconds = 4;
+}
+
+message PutResponse {
+  uint64 revision = 1;
+}
+
+message DeleteRequest {
+  bytes key = 1;
+}
+
+message DeleteResponse {
+  uint64 revision = 1;
+  bool deleted = 2;
+}
+
+message RangeRequest {
+  bytes start_key = 1;
+  bytes end_key = 2;
+  int64 limit = 3;
+}
+
+message RangeResponse {
+  repeated KeyValue kvs = 1;
+  uint64 count = 2;
+}
+
+message KeyValue {
+  bytes key = 1;
+  bytes value = 2;
+  uint64 create_revision = 3;
+  uint64 mod_revision = 4;
+  int64 lease_id = 5;
+}
+
+message TxnRequest {
+  repeated Compare comparisons = 1;
+  repeated RequestOp success_ops = 2;
+  repeated RequestOp failure_ops = 3;
+}
+
+message Compare {
+  bytes key = 1;
+  CompareTarget target = 2;
+  CompareResult result = 3;
+  oneof target_union {
+    uint64 version = 4;
+    bytes value = 5;
+  }
+}
+
+enum CompareTarget {
+  VERSION = 0;
+  VALUE = 1;
+}
+
+enum CompareResult {
+  EQUAL = 0;
+  NOT_EQUAL = 1;
+  GREATER = 2;
+  LESS = 3;
+}
+
+message RequestOp {
+  oneof request {
+    GetRequest get = 1;
+    PutRequest put = 2;
+    DeleteRequest delete = 3;
+  }
+}
+
+message TxnResponse {
+  bool succeeded = 1;
+  repeated ResponseOp responses = 2;
+}
+
+message ResponseOp {
+  oneof response {
+    GetResponse get = 1;
+    PutResponse put = 2;
+    DeleteResponse delete = 3;
+  }
+}
