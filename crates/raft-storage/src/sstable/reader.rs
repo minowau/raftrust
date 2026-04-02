@@ -145,8 +145,7 @@ impl SSTableReader {
             return Err(Error::Corruption("index block too small".to_string()));
         }
 
-        let num_entries =
-            u32::from_le_bytes([data[0], data[1], data[2], data[3]]) as usize;
+        let num_entries = u32::from_le_bytes([data[0], data[1], data[2], data[3]]) as usize;
         let mut entries = Vec::with_capacity(num_entries);
         let mut offset = 4;
 
@@ -168,11 +167,9 @@ impl SSTableReader {
             let first_key = data[offset..offset + key_len].to_vec();
             offset += key_len;
 
-            let block_offset =
-                u64::from_le_bytes(data[offset..offset + 8].try_into().unwrap());
+            let block_offset = u64::from_le_bytes(data[offset..offset + 8].try_into().unwrap());
             offset += 8;
-            let block_size =
-                u64::from_le_bytes(data[offset..offset + 8].try_into().unwrap());
+            let block_size = u64::from_le_bytes(data[offset..offset + 8].try_into().unwrap());
             offset += 8;
 
             entries.push(IndexEntry {
@@ -223,10 +220,7 @@ mod tests {
         );
 
         let reader = SSTableReader::open(&path).unwrap();
-        assert_eq!(
-            reader.get(b"apple").unwrap(),
-            Some(Some(b"red".to_vec()))
-        );
+        assert_eq!(reader.get(b"apple").unwrap(), Some(Some(b"red".to_vec())));
         assert_eq!(
             reader.get(b"banana").unwrap(),
             Some(Some(b"yellow".to_vec()))
@@ -237,16 +231,10 @@ mod tests {
     #[test]
     fn tombstone() {
         let dir = tempfile::tempdir().unwrap();
-        let path = create_test_sstable(
-            dir.path(),
-            &[(b"alive", Some(b"yes")), (b"dead", None)],
-        );
+        let path = create_test_sstable(dir.path(), &[(b"alive", Some(b"yes")), (b"dead", None)]);
 
         let reader = SSTableReader::open(&path).unwrap();
-        assert_eq!(
-            reader.get(b"alive").unwrap(),
-            Some(Some(b"yes".to_vec()))
-        );
+        assert_eq!(reader.get(b"alive").unwrap(), Some(Some(b"yes".to_vec())));
         assert_eq!(reader.get(b"dead").unwrap(), Some(None)); // tombstone
     }
 
@@ -285,11 +273,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = create_test_sstable(
             dir.path(),
-            &[
-                (b"a", Some(b"1")),
-                (b"b", Some(b"2")),
-                (b"c", Some(b"3")),
-            ],
+            &[(b"a", Some(b"1")), (b"b", Some(b"2")), (b"c", Some(b"3"))],
         );
 
         let reader = SSTableReader::open(&path).unwrap();

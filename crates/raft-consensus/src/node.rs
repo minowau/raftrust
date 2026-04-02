@@ -336,8 +336,7 @@ impl RaftNode {
 
         // Update commit index
         if request.leader_commit > inner.state.commit_index {
-            inner.state.commit_index =
-                std::cmp::min(request.leader_commit, inner.log.last_index());
+            inner.state.commit_index = std::cmp::min(request.leader_commit, inner.log.last_index());
         }
 
         AppendResponse {
@@ -400,12 +399,7 @@ impl RaftNode {
             let prev_log_index = next_idx.saturating_sub(1);
             let prev_log_term = inner.log.term_at(prev_log_index).unwrap_or(0);
 
-            let entries: Vec<LogEntry> = inner
-                .log
-                .entries_from(next_idx)
-                .iter()
-                .cloned()
-                .collect();
+            let entries: Vec<LogEntry> = inner.log.entries_from(next_idx).iter().cloned().collect();
 
             requests.push((
                 peer,
@@ -443,9 +437,7 @@ impl RaftNode {
 
         if response.success {
             leader.match_index.insert(from, response.match_index);
-            leader
-                .next_index
-                .insert(from, response.match_index + 1);
+            leader.next_index.insert(from, response.match_index + 1);
         } else {
             // Decrement nextIndex and retry
             let next = leader.next_index.entry(from).or_insert(1);
@@ -485,10 +477,7 @@ impl RaftNode {
         inner.election_state = None;
 
         // Initialize leader state
-        inner.leader_state = Some(LeaderState::new(
-            &self.config.peers,
-            inner.log.last_index(),
-        ));
+        inner.leader_state = Some(LeaderState::new(&self.config.peers, inner.log.last_index()));
 
         // Append a no-op entry to commit entries from previous terms
         let noop = LogEntry {
@@ -546,8 +535,7 @@ impl RaftNode {
     }
 
     fn save_persistent(&self, persistent: &PersistentState) {
-        let path =
-            Path::new(&self.config.data_dir).join("raft_state.json");
+        let path = Path::new(&self.config.data_dir).join("raft_state.json");
         persistent.save(&path);
     }
 }
@@ -725,10 +713,7 @@ mod tests {
         assert_eq!(requests.len(), 2);
 
         // Follower handles append
-        let (_, req) = requests
-            .into_iter()
-            .find(|(id, _)| *id == 2)
-            .unwrap();
+        let (_, req) = requests.into_iter().find(|(id, _)| *id == 2).unwrap();
         let resp = follower.handle_append_entries(req);
         assert!(resp.success);
 

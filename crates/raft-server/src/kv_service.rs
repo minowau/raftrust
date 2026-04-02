@@ -36,10 +36,7 @@ impl KvRpcService {
 
 #[tonic::async_trait]
 impl KvService for KvRpcService {
-    async fn get(
-        &self,
-        request: Request<GetRequest>,
-    ) -> Result<Response<GetResponse>, Status> {
+    async fn get(&self, request: Request<GetRequest>) -> Result<Response<GetResponse>, Status> {
         let req = request.into_inner();
 
         // Reads can be served from any node for now.
@@ -61,10 +58,7 @@ impl KvService for KvRpcService {
         }
     }
 
-    async fn put(
-        &self,
-        request: Request<PutRequest>,
-    ) -> Result<Response<PutResponse>, Status> {
+    async fn put(&self, request: Request<PutRequest>) -> Result<Response<PutResponse>, Status> {
         self.check_leader()?;
 
         let req = request.into_inner();
@@ -82,9 +76,7 @@ impl KvService for KvRpcService {
 
         // In a full implementation, we'd wait for the entry to be committed
         // and applied, then return the revision. For now, return the log index.
-        Ok(Response::new(PutResponse {
-            revision: index,
-        }))
+        Ok(Response::new(PutResponse { revision: index }))
     }
 
     async fn delete(
@@ -138,10 +130,7 @@ impl KvService for KvRpcService {
         Ok(Response::new(RangeResponse { kvs, count }))
     }
 
-    async fn txn(
-        &self,
-        _request: Request<TxnRequest>,
-    ) -> Result<Response<TxnResponse>, Status> {
+    async fn txn(&self, _request: Request<TxnRequest>) -> Result<Response<TxnResponse>, Status> {
         // Full transaction support through Raft requires
         // serializing the entire transaction as a single log entry.
         // This will be wired in when we add the transaction proposal path.

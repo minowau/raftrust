@@ -65,7 +65,10 @@ impl ApplyLoop {
                     debug!(index = entry.index, "Applied no-op entry");
                 }
                 EntryType::ConfigChange => {
-                    debug!(index = entry.index, "Config change entry (not yet implemented)");
+                    debug!(
+                        index = entry.index,
+                        "Config change entry (not yet implemented)"
+                    );
                 }
             }
         }

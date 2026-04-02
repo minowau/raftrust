@@ -129,9 +129,6 @@ mod tests {
         let removed = gc.collect(100).unwrap();
         assert_eq!(removed, 0); // latest version is always kept
 
-        assert_eq!(
-            store.get(b"key").unwrap().unwrap().value,
-            b"only-version"
-        );
+        assert_eq!(store.get(b"key").unwrap().unwrap().value, b"only-version");
     }
 }

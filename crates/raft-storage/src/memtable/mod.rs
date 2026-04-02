@@ -37,8 +37,8 @@ impl MemTable {
         if let Some(old) = self.data.insert(key, Some(value)) {
             // Subtract old value size, add new
             let old_size = old.as_ref().map_or(0, |v| v.len());
-            self.size_bytes = self.size_bytes - old_size + entry_size
-                - (entry_size - old_size.min(entry_size));
+            self.size_bytes =
+                self.size_bytes - old_size + entry_size - (entry_size - old_size.min(entry_size));
             // Simplified: just recalculate
         } else {
             self.size_bytes += entry_size;
@@ -61,9 +61,7 @@ impl MemTable {
     /// Iterate over all entries in sorted key order.
     /// Yields `(key, Option<value>)` where None means tombstone.
     pub fn iter(&self) -> impl Iterator<Item = (&[u8], Option<&[u8]>)> {
-        self.data
-            .iter()
-            .map(|(k, v)| (k.as_slice(), v.as_deref()))
+        self.data.iter().map(|(k, v)| (k.as_slice(), v.as_deref()))
     }
 
     /// Scan keys in range [start, end) in sorted order.

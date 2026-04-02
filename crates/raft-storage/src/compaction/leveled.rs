@@ -52,8 +52,8 @@ impl LeveledCompaction {
 
         // Check other levels: compact if level has more SSTables than target
         for level in 1..manifest.num_levels() - 1 {
-            let target = self.config.l0_compaction_trigger
-                * self.config.level_size_ratio.pow(level as u32);
+            let target =
+                self.config.l0_compaction_trigger * self.config.level_size_ratio.pow(level as u32);
             if manifest.level_count(level) > target {
                 return Some(level);
             }
@@ -276,18 +276,8 @@ mod tests {
         });
 
         // Two L0 SSTables with overlapping keys
-        write_test_sst(
-            dir.path(),
-            &mut manifest,
-            0,
-            &[(b"key", Some(b"old"))],
-        );
-        write_test_sst(
-            dir.path(),
-            &mut manifest,
-            0,
-            &[(b"key", Some(b"new"))],
-        );
+        write_test_sst(dir.path(), &mut manifest, 0, &[(b"key", Some(b"old"))]);
+        write_test_sst(dir.path(), &mut manifest, 0, &[(b"key", Some(b"new"))]);
 
         compaction.compact(&mut manifest, dir.path(), 0).unwrap();
         assert_eq!(manifest.level_count(1), 1);

@@ -5,9 +5,8 @@ use crate::message::{AppendRequest, EntryType, LogEntry, VoteRequest};
 use crate::node::RaftNode;
 use crate::proto::raft::raft_service_server::RaftService;
 use crate::proto::raft::{
-    AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotChunk,
-    InstallSnapshotResponse, RequestVoteRequest, RequestVoteResponse,
-    TransferLeadershipRequest, TransferLeadershipResponse,
+    AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotChunk, InstallSnapshotResponse,
+    RequestVoteRequest, RequestVoteResponse, TransferLeadershipRequest, TransferLeadershipResponse,
 };
 
 /// gRPC service implementation for Raft RPCs.
@@ -87,7 +86,9 @@ impl RaftService for RaftRpcServer {
         _request: Request<tonic::Streaming<InstallSnapshotChunk>>,
     ) -> Result<Response<InstallSnapshotResponse>, Status> {
         // Phase 5 implementation
-        Err(Status::unimplemented("install_snapshot not yet implemented"))
+        Err(Status::unimplemented(
+            "install_snapshot not yet implemented",
+        ))
     }
 
     async fn transfer_leadership(

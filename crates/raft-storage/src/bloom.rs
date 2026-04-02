@@ -21,13 +21,12 @@ impl BloomFilter {
         let fp = false_positive_rate.clamp(0.0001, 0.5);
 
         // Optimal number of bits: m = -n * ln(p) / (ln(2))^2
-        let num_bits = (-(expected_items as f64) * fp.ln() / (2.0_f64.ln().powi(2)))
-            .ceil() as usize;
+        let num_bits =
+            (-(expected_items as f64) * fp.ln() / (2.0_f64.ln().powi(2))).ceil() as usize;
         let num_bits = num_bits.max(8);
 
         // Optimal number of hashes: k = (m/n) * ln(2)
-        let num_hashes =
-            ((num_bits as f64 / expected_items as f64) * 2.0_f64.ln()).round() as u32;
+        let num_hashes = ((num_bits as f64 / expected_items as f64) * 2.0_f64.ln()).round() as u32;
         let num_hashes = num_hashes.max(1);
 
         Self {

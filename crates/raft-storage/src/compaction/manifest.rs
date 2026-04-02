@@ -77,15 +77,17 @@ impl Manifest {
             return Ok(Self::new(num_levels));
         }
         let data = std::fs::read_to_string(path)?;
-        let manifest: Manifest = serde_json::from_str(&data)
-            .map_err(|e| raft_common::error::Error::Corruption(format!("manifest parse error: {}", e)))?;
+        let manifest: Manifest = serde_json::from_str(&data).map_err(|e| {
+            raft_common::error::Error::Corruption(format!("manifest parse error: {}", e))
+        })?;
         Ok(manifest)
     }
 
     /// Save manifest to a JSON file. Uses write-rename for atomicity.
     pub fn save(&self, path: &Path) -> Result<()> {
-        let data = serde_json::to_string_pretty(self)
-            .map_err(|e| raft_common::error::Error::Storage(format!("manifest serialize error: {}", e)))?;
+        let data = serde_json::to_string_pretty(self).map_err(|e| {
+            raft_common::error::Error::Storage(format!("manifest serialize error: {}", e))
+        })?;
         let tmp_path = path.with_extension("tmp");
         std::fs::write(&tmp_path, data)?;
         std::fs::rename(&tmp_path, path)?;

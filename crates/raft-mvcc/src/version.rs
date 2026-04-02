@@ -107,12 +107,9 @@ impl VersionedValue {
             (None, 1)
         };
         let create_revision = u64::from_le_bytes(data[offset..offset + 8].try_into().unwrap());
-        let mod_revision =
-            u64::from_le_bytes(data[offset + 8..offset + 16].try_into().unwrap());
-        let lease_id =
-            i64::from_le_bytes(data[offset + 16..offset + 24].try_into().unwrap());
-        let ttl_seconds =
-            i64::from_le_bytes(data[offset + 24..offset + 32].try_into().unwrap());
+        let mod_revision = u64::from_le_bytes(data[offset + 8..offset + 16].try_into().unwrap());
+        let lease_id = i64::from_le_bytes(data[offset + 16..offset + 24].try_into().unwrap());
+        let ttl_seconds = i64::from_le_bytes(data[offset + 24..offset + 32].try_into().unwrap());
 
         Self {
             value,

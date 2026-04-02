@@ -3,9 +3,7 @@ use tonic::transport::Channel;
 
 use crate::message::{AppendRequest, AppendResponse, EntryType, VoteRequest, VoteResponse};
 use crate::proto::raft::raft_service_client::RaftServiceClient;
-use crate::proto::raft::{
-    self as pb, AppendEntriesRequest, RequestVoteRequest,
-};
+use crate::proto::raft::{self as pb, AppendEntriesRequest, RequestVoteRequest};
 
 /// gRPC client for peer-to-peer Raft communication.
 pub struct PeerClient {

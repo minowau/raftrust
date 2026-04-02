@@ -115,11 +115,7 @@ impl KvClient {
         Err(tonic::Status::unavailable("all retries exhausted"))
     }
 
-    pub async fn put(
-        &mut self,
-        key: &[u8],
-        value: &[u8],
-    ) -> Result<PutResponse, tonic::Status> {
+    pub async fn put(&mut self, key: &[u8], value: &[u8]) -> Result<PutResponse, tonic::Status> {
         self.put_with_options(key, value, 0, 0).await
     }
 
@@ -172,12 +168,7 @@ impl KvClient {
 
         for attempt in 0..self.max_retries {
             let client = self.get_connection(node_id).await?;
-            match client
-                .delete(DeleteRequest {
-                    key: key.to_vec(),
-                })
-                .await
-            {
+            match client.delete(DeleteRequest { key: key.to_vec() }).await {
                 Ok(resp) => {
                     self.leader_id = Some(node_id);
                     return Ok(resp.into_inner());

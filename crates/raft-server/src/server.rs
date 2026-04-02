@@ -1,10 +1,10 @@
 use raft_common::types::NodeId;
 use raft_consensus::node::{NodeConfig, RaftNode};
+use raft_consensus::proto::raft::raft_service_server::RaftServiceServer;
 use raft_consensus::rpc::client::PeerClient;
 use raft_consensus::rpc::server::RaftRpcServer;
 use raft_consensus::state::Role;
 use raft_consensus::tick::TickConfig;
-use raft_consensus::proto::raft::raft_service_server::RaftServiceServer;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -93,11 +93,7 @@ impl RaftServer {
         });
 
         // Spawn Raft event loop
-        let event_handle = tokio::spawn(Self::event_loop(
-            node.clone(),
-            peers.clone(),
-            tick_config,
-        ));
+        let event_handle = tokio::spawn(Self::event_loop(node.clone(), peers.clone(), tick_config));
 
         tokio::select! {
             result = grpc_handle => {
@@ -210,7 +206,8 @@ impl RaftServer {
             if let Some(client) = peers_guard.get_mut(&peer_id) {
                 match client.request_vote(&request).await {
                     Ok(response) => {
-                        let became_leader = node.handle_vote_response(peer_id, response, is_pre_vote);
+                        let became_leader =
+                            node.handle_vote_response(peer_id, response, is_pre_vote);
                         any_success = true;
                         if became_leader {
                             info!(node = node.id(), "Won election");
@@ -228,4 +225,3 @@ impl RaftServer {
         any_success
     }
 }
-

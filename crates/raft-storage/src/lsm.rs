@@ -54,8 +54,7 @@ impl WalOp {
         }
         match data[0] {
             0x01 => {
-                let key_len =
-                    u32::from_le_bytes([data[1], data[2], data[3], data[4]]) as usize;
+                let key_len = u32::from_le_bytes([data[1], data[2], data[3], data[4]]) as usize;
                 let key = data[5..5 + key_len].to_vec();
                 let val_start = 5 + key_len;
                 let val_len = u32::from_le_bytes([
@@ -68,8 +67,7 @@ impl WalOp {
                 Ok(WalOp::Put { key, value })
             }
             0x02 => {
-                let key_len =
-                    u32::from_le_bytes([data[1], data[2], data[3], data[4]]) as usize;
+                let key_len = u32::from_le_bytes([data[1], data[2], data[3], data[4]]) as usize;
                 let key = data[5..5 + key_len].to_vec();
                 Ok(WalOp::Delete { key })
             }
@@ -232,7 +230,9 @@ impl LsmTree {
         }
 
         // Remove the frozen MemTable from immutables
-        self.immutable_memtables.write().retain(|m| !Arc::ptr_eq(m, &frozen));
+        self.immutable_memtables
+            .write()
+            .retain(|m| !Arc::ptr_eq(m, &frozen));
 
         // Reset WAL (memtable data is now in SSTable)
         {
@@ -309,11 +309,7 @@ impl StorageEngine for LsmTree {
             let cache = self.sstable_cache.read();
             // Sort by level, then by ID descending (newest first within level)
             let mut entries: Vec<&(SSTableEntry, SSTableReader)> = cache.iter().collect();
-            entries.sort_by(|a, b| {
-                a.0.level
-                    .cmp(&b.0.level)
-                    .then(b.0.id.cmp(&a.0.id))
-            });
+            entries.sort_by(|a, b| a.0.level.cmp(&b.0.level).then(b.0.id.cmp(&a.0.id)));
 
             for (_, reader) in entries {
                 if let Some(result) = reader.get(key)? {
@@ -356,9 +352,7 @@ impl StorageEngine for LsmTree {
     }
 
     fn delete(&self, key: &[u8]) -> Result<()> {
-        let op = WalOp::Delete {
-            key: key.to_vec(),
-        };
+        let op = WalOp::Delete { key: key.to_vec() };
         {
             let mut wal = self.wal.write();
             wal.append(&op.encode())?;
@@ -390,11 +384,7 @@ impl StorageEngine for LsmTree {
             let cache = self.sstable_cache.read();
             let mut entries: Vec<&(SSTableEntry, SSTableReader)> = cache.iter().collect();
             // Sort deepest first, oldest first
-            entries.sort_by(|a, b| {
-                b.0.level
-                    .cmp(&a.0.level)
-                    .then(a.0.id.cmp(&b.0.id))
-            });
+            entries.sort_by(|a, b| b.0.level.cmp(&a.0.level).then(a.0.id.cmp(&b.0.id)));
 
             for (_, reader) in entries {
                 for entry in reader.scan(start, end)? {
@@ -526,10 +516,7 @@ mod tests {
         // Reopen — should recover from WAL
         {
             let lsm = open_test_lsm(dir.path());
-            assert_eq!(
-                lsm.get(b"persistent").unwrap(),
-                Some(b"data".to_vec())
-            );
+            assert_eq!(lsm.get(b"persistent").unwrap(), Some(b"data".to_vec()));
         }
     }
 

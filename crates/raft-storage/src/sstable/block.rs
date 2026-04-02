@@ -100,9 +100,12 @@ impl BlockReader {
             if offset + 8 > payload_end {
                 return Err(Error::Corruption("block entry truncated".to_string()));
             }
-            let key_len =
-                u32::from_le_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]])
-                    as usize;
+            let key_len = u32::from_le_bytes([
+                data[offset],
+                data[offset + 1],
+                data[offset + 2],
+                data[offset + 3],
+            ]) as usize;
             let val_len_raw = u32::from_le_bytes([
                 data[offset + 4],
                 data[offset + 5],
@@ -137,9 +140,7 @@ impl BlockReader {
 
     /// Binary search for a key within block entries.
     pub fn search(entries: &[BlockEntry], key: &[u8]) -> Option<usize> {
-        entries
-            .binary_search_by(|e| e.key.as_slice().cmp(key))
-            .ok()
+        entries.binary_search_by(|e| e.key.as_slice().cmp(key)).ok()
     }
 }
 

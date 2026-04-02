@@ -18,10 +18,7 @@ pub struct WalWriter {
 impl WalWriter {
     /// Open or create a WAL file at the given path.
     pub fn open(path: &Path) -> Result<Self> {
-        let file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)?;
+        let file = OpenOptions::new().create(true).append(true).open(path)?;
 
         let bytes_written = file.metadata()?.len();
 

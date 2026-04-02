@@ -179,15 +179,9 @@ impl RaftLog {
             0 => EntryType::Normal,
             1 => EntryType::ConfigChange,
             2 => EntryType::Noop,
-            t => {
-                return Err(Error::Corruption(format!(
-                    "unknown entry type: {}",
-                    t
-                )))
-            }
+            t => return Err(Error::Corruption(format!("unknown entry type: {}", t))),
         };
-        let data_len =
-            u32::from_le_bytes(data[17..21].try_into().unwrap()) as usize;
+        let data_len = u32::from_le_bytes(data[17..21].try_into().unwrap()) as usize;
         let entry_data = data[21..21 + data_len].to_vec();
 
         Ok(LogEntry {
@@ -280,12 +274,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut log = RaftLog::open(&dir.path().join("raft.wal")).unwrap();
 
-        log.append(vec![
-            make_entry(1, 1),
-            make_entry(2, 1),
-            make_entry(3, 2),
-        ])
-        .unwrap();
+        log.append(vec![make_entry(1, 1), make_entry(2, 1), make_entry(3, 2)])
+            .unwrap();
 
         log.truncate_after(1);
         assert_eq!(log.last_index(), 1);
