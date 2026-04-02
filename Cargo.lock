@@ -1141,6 +1141,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bytes",
+ "crc32fast",
  "parking_lot",
  "prometheus",
  "prost",
