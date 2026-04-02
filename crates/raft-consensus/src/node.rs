@@ -1,6 +1,7 @@
 use parking_lot::Mutex;
 use raft_common::types::{LogIndex, NodeId, Term};
 use std::path::Path;
+use std::time::Instant;
 use tracing::{debug, info, warn};
 
 use crate::election::should_grant_vote;
@@ -40,6 +41,8 @@ struct RaftNodeInner {
     read_index_state: ReadIndexState,
     transfer_state: Option<TransferState>,
     membership: MembershipState,
+    /// Last time a valid heartbeat/AppendEntries was received from the leader.
+    last_heartbeat: Instant,
 }
 
 impl RaftNode {
@@ -74,6 +77,7 @@ impl RaftNode {
                 read_index_state: ReadIndexState::new(),
                 transfer_state: None,
                 membership,
+                last_heartbeat: Instant::now(),
             }),
             config,
         })
@@ -112,6 +116,11 @@ impl RaftNode {
     /// Get peer IDs.
     pub fn peers(&self) -> &[NodeId] {
         &self.config.peers
+    }
+
+    /// Time since last heartbeat from the leader (for election timeout decisions).
+    pub fn time_since_last_heartbeat(&self) -> std::time::Duration {
+        self.inner.lock().last_heartbeat.elapsed()
     }
 
     // ── Election ──
@@ -304,6 +313,7 @@ impl RaftNode {
             }
             inner.state.role = Role::Follower;
             inner.state.leader_id = Some(request.leader_id);
+            inner.last_heartbeat = Instant::now();
         }
 
         // Log consistency check

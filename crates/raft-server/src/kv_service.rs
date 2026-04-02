@@ -78,13 +78,13 @@ impl KvRpcService {
         let mut attempts = 0;
         while !self.node.is_read_index_confirmed(id) {
             attempts += 1;
-            if attempts > 50 {
+            if attempts > 200 {
                 self.node.take_read_index(id); // Clean up
                 return Err(Status::deadline_exceeded(
                     "read index confirmation timed out",
                 ));
             }
-            tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
 
             // Check if we're still leader
             if self.node.role() != Role::Leader {
@@ -118,7 +118,11 @@ impl KvService for KvRpcService {
         let req = request.into_inner();
 
         // Linearizable read: confirm leadership before serving
-        self.wait_for_linearizable_read().await?;
+        if req.linearizable {
+            self.wait_for_linearizable_read().await?;
+        } else {
+            self.check_leader()?;
+        }
 
         let result = self
             .store
