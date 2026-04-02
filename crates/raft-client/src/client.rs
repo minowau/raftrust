@@ -6,8 +6,8 @@ use tracing::debug;
 
 use crate::proto::kv::kv_service_client::KvServiceClient;
 use crate::proto::kv::{
-    DeleteRequest, DeleteResponse, GetRequest, GetResponse, PutRequest, PutResponse,
-    RangeRequest, RangeResponse,
+    DeleteRequest, DeleteResponse, GetRequest, GetResponse, PutRequest, PutResponse, RangeRequest,
+    RangeResponse,
 };
 
 /// KV client with automatic leader tracking and retry with exponential backoff.
