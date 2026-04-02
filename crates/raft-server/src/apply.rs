@@ -1,6 +1,6 @@
 use raft_common::error::Result;
-use raft_consensus::message::{EntryType, LogEntry};
-use raft_consensus::node::RaftNode;
+use raft_consensus_core::message::{EntryType, LogEntry};
+use raft_consensus_core::node::RaftNode;
 use raft_mvcc::mvcc::MvccStore;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;

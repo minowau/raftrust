@@ -4,6 +4,8 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
+repository.workspace = true
+description = "MVCC layer with versioned keys, snapshot isolation, OCC transactions, and TTL key expiry"
 
 [dependencies]
 raft-common = { workspace = true }

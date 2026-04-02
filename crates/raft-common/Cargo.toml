@@ -4,6 +4,8 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
+repository.workspace = true
+description = "Shared types, configuration, error handling, and Prometheus metrics for the raft distributed KV store"
 
 [dependencies]
 serde = { workspace = true }

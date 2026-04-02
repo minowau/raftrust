@@ -4,6 +4,8 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
+repository.workspace = true
+description = "Client library for the raft distributed KV store with automatic leader tracking and exponential backoff"
 
 [dependencies]
 raft-common = { workspace = true }

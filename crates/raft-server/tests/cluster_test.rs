@@ -1,6 +1,6 @@
-use raft_consensus::node::{NodeConfig, RaftNode};
-use raft_consensus::state::Role;
-use raft_consensus::tick::TickConfig;
+use raft_consensus_core::node::{NodeConfig, RaftNode};
+use raft_consensus_core::state::Role;
+use raft_consensus_core::tick::TickConfig;
 use std::path::Path;
 
 /// Create a test node with in-memory directory.
@@ -288,7 +288,7 @@ fn install_snapshot_on_lagging_follower() {
 
 #[test]
 fn snapshot_checksum_verified() {
-    use raft_consensus::snapshot::SnapshotManager;
+    use raft_consensus_core::snapshot::SnapshotManager;
 
     let dir = tempfile::tempdir().unwrap();
     let mgr = SnapshotManager::new(&dir.path().join("snap")).unwrap();

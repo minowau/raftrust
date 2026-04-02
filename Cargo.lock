@@ -1065,7 +1065,7 @@ dependencies = [
  "parking_lot",
  "raft-client",
  "raft-common",
- "raft-consensus",
+ "raft-consensus-core",
  "raft-server",
  "raft-storage",
  "rand 0.8.5",
@@ -1100,7 +1100,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "raft-consensus"
+name = "raft-consensus-core"
 version = "0.1.0"
 dependencies = [
  "bytes",
@@ -1148,7 +1148,7 @@ dependencies = [
  "prost",
  "prost-types",
  "raft-common",
- "raft-consensus",
+ "raft-consensus-core",
  "raft-mvcc",
  "raft-storage",
  "serde",

@@ -4,6 +4,8 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
+repository.workspace = true
+description = "Custom LSM-tree storage engine with WAL, MemTable, SSTables, bloom filters, and leveled compaction"
 
 [dependencies]
 raft-common = { workspace = true }

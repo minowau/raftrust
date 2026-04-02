@@ -1,4 +1,4 @@
-use raft_consensus::node::RaftNode;
+use raft_consensus_core::node::RaftNode;
 use raft_mvcc::mvcc::MvccStore;
 use serde::{Deserialize, Serialize};
 use tracing::info;

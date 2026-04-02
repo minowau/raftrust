@@ -1,5 +1,5 @@
-use raft_consensus::node::RaftNode;
-use raft_consensus::state::Role;
+use raft_consensus_core::node::RaftNode;
+use raft_consensus_core::state::Role;
 use raft_mvcc::mvcc::MvccStore;
 use std::sync::Arc;
 use tonic::{Request, Response, Status};

@@ -4,11 +4,13 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
+repository.workspace = true
+description = "Chaos testing framework: network partitions, disk failures, clock skew, in-process cluster harness"
 
 [dependencies]
 raft-common = { workspace = true }
 raft-storage = { workspace = true }
-raft-consensus = { workspace = true }
+raft-consensus-core = { workspace = true }
 raft-server = { workspace = true }
 raft-client = { workspace = true }
 tokio = { workspace = true }

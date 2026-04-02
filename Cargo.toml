@@ -16,6 +16,7 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Louis-Philip Marcoux"]
 license = "MIT"
+repository = "https://github.com/louisphilipmarcoux/raft"
 
 [workspace.dependencies]
 # Async runtime
@@ -66,11 +67,11 @@ proptest = "1"
 criterion = { version = "0.5", features = ["html_reports"] }
 
 # Internal crates
-raft-common = { path = "crates/raft-common" }
-raft-storage = { path = "crates/raft-storage" }
-raft-mvcc = { path = "crates/raft-mvcc" }
-raft-consensus = { path = "crates/raft-consensus" }
-raft-server = { path = "crates/raft-server" }
-raft-client = { path = "crates/raft-client" }
-raft-admin = { path = "crates/raft-admin" }
-raft-chaos = { path = "crates/raft-chaos" }
+raft-common = { version = "0.1.0", path = "crates/raft-common" }
+raft-storage = { version = "0.1.0", path = "crates/raft-storage" }
+raft-mvcc = { version = "0.1.0", path = "crates/raft-mvcc" }
+raft-consensus-core = { version = "0.1.0", path = "crates/raft-consensus" }
+raft-server = { version = "0.1.0", path = "crates/raft-server" }
+raft-client = { version = "0.1.0", path = "crates/raft-client" }
+raft-admin = { version = "0.1.0", path = "crates/raft-admin" }
+raft-chaos = { version = "0.1.0", path = "crates/raft-chaos" }

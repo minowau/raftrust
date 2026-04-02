@@ -1,6 +1,6 @@
 use raft_common::metrics::Metrics;
-use raft_consensus::node::RaftNode;
-use raft_consensus::state::Role;
+use raft_consensus_core::node::RaftNode;
+use raft_consensus_core::state::Role;
 use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
@@ -132,8 +132,8 @@ fn update_raft_gauges(node: &RaftNode, metrics: &Metrics) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use raft_consensus::node::NodeConfig;
-    use raft_consensus::tick::TickConfig;
+    use raft_consensus_core::node::NodeConfig;
+    use raft_consensus_core::tick::TickConfig;
 
     fn test_node(dir: &std::path::Path) -> Arc<RaftNode> {
         Arc::new(

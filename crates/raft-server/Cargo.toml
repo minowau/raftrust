@@ -4,12 +4,14 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
+repository.workspace = true
+description = "Full Raft KV server: KV/Watch/Lease/Admin gRPC services, apply loop, HTTP endpoints"
 
 [dependencies]
 raft-common = { workspace = true }
 raft-storage = { workspace = true }
 raft-mvcc = { workspace = true }
-raft-consensus = { workspace = true }
+raft-consensus-core = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
 prost = { workspace = true }

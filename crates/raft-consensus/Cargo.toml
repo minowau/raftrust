@@ -1,9 +1,11 @@
 [package]
-name = "raft-consensus"
+name = "raft-consensus-core"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
+repository.workspace = true
+description = "Raft consensus implementation: election, replication, snapshots, linearizable reads, leadership transfer, joint consensus"
 
 [dependencies]
 raft-common = { workspace = true }

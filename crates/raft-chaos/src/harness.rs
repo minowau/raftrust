@@ -1,6 +1,6 @@
-use raft_consensus::node::{NodeConfig, RaftNode};
-use raft_consensus::state::Role;
-use raft_consensus::tick::TickConfig;
+use raft_consensus_core::node::{NodeConfig, RaftNode};
+use raft_consensus_core::state::Role;
+use raft_consensus_core::tick::TickConfig;
 use rand::seq::SliceRandom;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

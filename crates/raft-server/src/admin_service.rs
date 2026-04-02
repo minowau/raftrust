@@ -1,6 +1,6 @@
-use raft_consensus::membership::ConfigChange;
-use raft_consensus::node::RaftNode;
-use raft_consensus::state::Role;
+use raft_consensus_core::membership::ConfigChange;
+use raft_consensus_core::node::RaftNode;
+use raft_consensus_core::state::Role;
 use raft_mvcc::mvcc::MvccStore;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -180,7 +180,7 @@ impl AdminService for AdminRpcService {
         );
 
         // Install the snapshot via the Raft node
-        let snap_meta = raft_consensus::snapshot::SnapshotMetadata {
+        let snap_meta = raft_consensus_core::snapshot::SnapshotMetadata {
             last_included_index: metadata.commit_index,
             last_included_term: metadata.term,
             checksum: crc32fast::hash(&snapshot_data),
@@ -218,8 +218,8 @@ impl AdminService for AdminRpcService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use raft_consensus::node::NodeConfig;
-    use raft_consensus::tick::TickConfig;
+    use raft_consensus_core::node::NodeConfig;
+    use raft_consensus_core::tick::TickConfig;
     use raft_storage::lsm::{LsmConfig, LsmTree};
 
     fn test_setup(dir: &std::path::Path) -> (Arc<RaftNode>, Arc<MvccStore>) {

@@ -1,12 +1,12 @@
 use raft_common::metrics::Metrics;
 use raft_common::types::NodeId;
-use raft_consensus::message::TimeoutNow;
-use raft_consensus::node::{NodeConfig, RaftNode};
-use raft_consensus::proto::raft::raft_service_server::RaftServiceServer;
-use raft_consensus::rpc::client::PeerClient;
-use raft_consensus::rpc::server::RaftRpcServer;
-use raft_consensus::state::Role;
-use raft_consensus::tick::TickConfig;
+use raft_consensus_core::message::TimeoutNow;
+use raft_consensus_core::node::{NodeConfig, RaftNode};
+use raft_consensus_core::proto::raft::raft_service_server::RaftServiceServer;
+use raft_consensus_core::rpc::client::PeerClient;
+use raft_consensus_core::rpc::server::RaftRpcServer;
+use raft_consensus_core::state::Role;
+use raft_consensus_core::tick::TickConfig;
 use raft_mvcc::mvcc::MvccStore;
 use raft_storage::lsm::{LsmConfig, LsmTree};
 use std::collections::HashMap;
@@ -374,7 +374,7 @@ impl RaftServer {
     async fn send_vote_requests(
         node: &Arc<RaftNode>,
         peers: &Arc<Mutex<HashMap<NodeId, PeerClient>>>,
-        requests: Vec<(NodeId, raft_consensus::message::VoteRequest)>,
+        requests: Vec<(NodeId, raft_consensus_core::message::VoteRequest)>,
         is_pre_vote: bool,
     ) -> bool {
         let mut any_success = false;

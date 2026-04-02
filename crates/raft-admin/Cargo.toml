@@ -4,6 +4,8 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
+repository.workspace = true
+description = "Admin CLI for the raft distributed KV store: put, get, delete, status, transfer"
 
 [dependencies]
 raft-common = { workspace = true }
