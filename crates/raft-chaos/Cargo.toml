@@ -1,0 +1,21 @@
+[package]
+name = "raft-chaos"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+raft-common = { workspace = true }
+raft-storage = { workspace = true }
+raft-consensus = { workspace = true }
+raft-server = { workspace = true }
+raft-client = { workspace = true }
+tokio = { workspace = true }
+rand = { workspace = true }
+tracing = { workspace = true }
+parking_lot = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+tempfile = { workspace = true }

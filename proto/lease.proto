@@ -1,0 +1,46 @@
+syntax = "proto3";
+package lease;
+
+service LeaseService {
+  rpc LeaseGrant(LeaseGrantRequest) returns (LeaseGrantResponse);
+  rpc LeaseRevoke(LeaseRevokeRequest) returns (LeaseRevokeResponse);
+  rpc LeaseKeepAlive(stream LeaseKeepAliveRequest) returns (stream LeaseKeepAliveResponse);
+  rpc LeaseTimeToLive(LeaseTimeToLiveRequest) returns (LeaseTimeToLiveResponse);
+}
+
+message LeaseGrantRequest {
+  int64 ttl = 1;
+  int64 id = 2;
+}
+
+message LeaseGrantResponse {
+  int64 id = 1;
+  int64 ttl = 2;
+}
+
+message LeaseRevokeRequest {
+  int64 id = 1;
+}
+
+message LeaseRevokeResponse {}
+
+message LeaseKeepAliveRequest {
+  int64 id = 1;
+}
+
+message LeaseKeepAliveResponse {
+  int64 id = 1;
+  int64 ttl = 2;
+}
+
+message LeaseTimeToLiveRequest {
+  int64 id = 1;
+  bool keys = 2;
+}
+
+message LeaseTimeToLiveResponse {
+  int64 id = 1;
+  int64 ttl = 2;
+  int64 granted_ttl = 3;
+  repeated bytes keys = 4;
+}

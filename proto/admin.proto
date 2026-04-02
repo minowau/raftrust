@@ -1,0 +1,76 @@
+syntax = "proto3";
+package admin;
+
+service AdminService {
+  rpc AddNode(AddNodeRequest) returns (AddNodeResponse);
+  rpc RemoveNode(RemoveNodeRequest) returns (RemoveNodeResponse);
+  rpc TransferLeadership(TransferLeadershipRequest) returns (TransferLeadershipResponse);
+  rpc DrainNode(DrainNodeRequest) returns (DrainNodeResponse);
+  rpc TriggerCompaction(TriggerCompactionRequest) returns (TriggerCompactionResponse);
+  rpc Backup(BackupRequest) returns (stream BackupResponse);
+  rpc Restore(stream RestoreRequest) returns (RestoreResponse);
+  rpc Status(StatusRequest) returns (StatusResponse);
+}
+
+message AddNodeRequest {
+  uint64 node_id = 1;
+  string address = 2;
+}
+
+message AddNodeResponse {
+  bool success = 1;
+}
+
+message RemoveNodeRequest {
+  uint64 node_id = 1;
+}
+
+message RemoveNodeResponse {
+  bool success = 1;
+}
+
+message TransferLeadershipRequest {
+  uint64 transferee = 1;
+}
+
+message TransferLeadershipResponse {
+  bool success = 1;
+}
+
+message DrainNodeRequest {}
+
+message DrainNodeResponse {
+  bool success = 1;
+}
+
+message TriggerCompactionRequest {}
+
+message TriggerCompactionResponse {
+  bool success = 1;
+}
+
+message BackupRequest {}
+
+message BackupResponse {
+  bytes data = 1;
+}
+
+message RestoreRequest {
+  bytes data = 1;
+}
+
+message RestoreResponse {
+  bool success = 1;
+}
+
+message StatusRequest {}
+
+message StatusResponse {
+  uint64 node_id = 1;
+  string role = 2;
+  uint64 term = 3;
+  uint64 leader_id = 4;
+  uint64 commit_index = 5;
+  uint64 applied_index = 6;
+  uint64 cluster_size = 7;
+}

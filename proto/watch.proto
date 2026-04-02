@@ -1,0 +1,43 @@
+syntax = "proto3";
+package watch;
+
+import "kv.proto";
+
+service WatchService {
+  rpc Watch(stream WatchRequest) returns (stream WatchResponse);
+}
+
+message WatchRequest {
+  oneof request {
+    WatchCreateRequest create = 1;
+    WatchCancelRequest cancel = 2;
+  }
+}
+
+message WatchCreateRequest {
+  bytes key = 1;
+  bytes range_end = 2;
+  uint64 start_revision = 3;
+}
+
+message WatchCancelRequest {
+  int64 watch_id = 1;
+}
+
+message WatchResponse {
+  int64 watch_id = 1;
+  bool created = 2;
+  bool canceled = 3;
+  repeated Event events = 4;
+}
+
+message Event {
+  EventType event_type = 1;
+  kv.KeyValue kv = 2;
+  kv.KeyValue prev_kv = 3;
+}
+
+enum EventType {
+  PUT = 0;
+  DELETE = 1;
+}

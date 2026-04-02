@@ -1,0 +1,33 @@
+[package]
+name = "raft-server"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+raft-common = { workspace = true }
+raft-storage = { workspace = true }
+raft-mvcc = { workspace = true }
+raft-consensus = { workspace = true }
+tokio = { workspace = true }
+tonic = { workspace = true }
+prost = { workspace = true }
+prost-types = { workspace = true }
+bytes = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+prometheus = { workspace = true }
+parking_lot = { workspace = true }
+uuid = { workspace = true }
+anyhow = { workspace = true }
+
+[build-dependencies]
+tonic-build = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+tempfile = { workspace = true }
