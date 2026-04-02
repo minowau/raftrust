@@ -3,8 +3,10 @@ pub mod apply;
 pub mod backup;
 pub mod http;
 pub mod kv_service;
+pub mod lease;
 pub mod lease_service;
 pub mod server;
+pub mod watch;
 pub mod watch_service;
 
 /// Generated protobuf types for client-facing services.
