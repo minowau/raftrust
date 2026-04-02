@@ -1108,6 +1108,8 @@ dependencies = [
  "raft-common",
  "raft-storage",
  "rand 0.8.5",
+ "serde",
+ "serde_json",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
