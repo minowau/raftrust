@@ -1,6 +1,5 @@
 use parking_lot::Mutex;
 use raft_common::types::{LogIndex, NodeId, Term};
-use std::collections::HashMap;
 use std::path::Path;
 use tracing::{debug, info};
 
@@ -35,8 +34,6 @@ struct RaftNodeInner {
     log: RaftLog,
     leader_state: Option<LeaderState>,
     election_state: Option<ElectionState>,
-    /// Pending proposals waiting for commit.
-    pending_proposals: HashMap<LogIndex, tokio::sync::oneshot::Sender<ProposalResult>>,
 }
 
 impl RaftNode {
@@ -66,7 +63,6 @@ impl RaftNode {
                 log,
                 leader_state: None,
                 election_state: None,
-                pending_proposals: HashMap::new(),
             }),
             config,
         })
@@ -222,7 +218,7 @@ impl RaftNode {
         inner
             .election_state
             .as_ref()
-            .map_or(false, |e| e.has_quorum())
+            .is_some_and(|e| e.has_quorum())
     }
 
     // ── Vote handling ──
@@ -399,7 +395,7 @@ impl RaftNode {
             let prev_log_index = next_idx.saturating_sub(1);
             let prev_log_term = inner.log.term_at(prev_log_index).unwrap_or(0);
 
-            let entries: Vec<LogEntry> = inner.log.entries_from(next_idx).iter().cloned().collect();
+            let entries: Vec<LogEntry> = inner.log.entries_from(next_idx).to_vec();
 
             requests.push((
                 peer,
@@ -593,7 +589,7 @@ mod tests {
             if inner
                 .election_state
                 .as_ref()
-                .map_or(false, |e| e.has_quorum())
+                .is_some_and(|e| e.has_quorum())
             {
                 node.become_leader_inner(&mut inner);
             }

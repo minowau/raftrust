@@ -7,7 +7,6 @@ use raft_common::error::{Error, Result};
 /// represents a tombstone (deleted key).
 ///
 /// Block trailer: `[num_entries: 4 LE]`
-
 pub const TOMBSTONE_MARKER: u32 = u32::MAX;
 
 #[derive(Debug, Clone)]
@@ -20,6 +19,12 @@ pub struct BlockEntry {
 pub struct BlockBuilder {
     entries: Vec<BlockEntry>,
     size: usize,
+}
+
+impl Default for BlockBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl BlockBuilder {

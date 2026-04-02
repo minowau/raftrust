@@ -22,6 +22,7 @@ impl KvRpcService {
         Self { node, store }
     }
 
+    #[allow(clippy::result_large_err)]
     fn check_leader(&self) -> Result<(), Status> {
         if self.node.role() != Role::Leader {
             let leader = self.node.leader_id();

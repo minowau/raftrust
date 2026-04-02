@@ -2,11 +2,11 @@ use raft_common::types::NodeId;
 use std::collections::HashMap;
 use std::time::Duration;
 use tonic::transport::Channel;
-use tracing::{debug, warn};
+use tracing::debug;
 
 use crate::proto::kv::kv_service_client::KvServiceClient;
 use crate::proto::kv::{
-    DeleteRequest, DeleteResponse, GetRequest, GetResponse, KeyValue, PutRequest, PutResponse,
+    DeleteRequest, DeleteResponse, GetRequest, GetResponse, PutRequest, PutResponse,
     RangeRequest, RangeResponse,
 };
 

@@ -74,7 +74,7 @@ fn three_node_election_and_replication() {
 
     // Take committed entries
     let entries = n1.take_committed_entries();
-    assert!(entries.len() >= 1);
+    assert!(!entries.is_empty());
 }
 
 #[test]

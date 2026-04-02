@@ -117,7 +117,7 @@ impl SSTableWriter {
             .map(|k| k.to_vec())
             .unwrap_or_default();
 
-        let block = std::mem::replace(&mut self.current_block, BlockBuilder::new());
+        let block = std::mem::take(&mut self.current_block);
         let block_data = block.build();
         let offset = self.data.len() as u64;
         let size = block_data.len() as u64;

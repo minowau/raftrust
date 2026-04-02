@@ -1,15 +1,15 @@
-/// Versioned key encoding for MVCC.
-///
-/// Internal key format: `[user_key][!revision as 8 bytes BE]`
-///
-/// The revision is bitwise-inverted so that newer revisions (higher numbers)
-/// sort BEFORE older ones in the BTreeMap/SSTable. This means a scan for a
-/// user key will encounter the newest version first.
-///
-/// Example: user_key="foo", revision=5
-///   encoded = b"foo" ++ (!5u64).to_be_bytes()
-///
-/// This ensures all versions of the same key are contiguous and newest-first.
+// Versioned key encoding for MVCC.
+//
+// Internal key format: `[user_key][!revision as 8 bytes BE]`
+//
+// The revision is bitwise-inverted so that newer revisions (higher numbers)
+// sort BEFORE older ones in the BTreeMap/SSTable. This means a scan for a
+// user key will encounter the newest version first.
+//
+// Example: user_key="foo", revision=5
+//   encoded = b"foo" ++ (!5u64).to_be_bytes()
+//
+// This ensures all versions of the same key are contiguous and newest-first.
 
 /// Length of the revision suffix in bytes.
 pub const REVISION_SUFFIX_LEN: usize = 8;

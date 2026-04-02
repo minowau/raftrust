@@ -18,6 +18,12 @@ pub struct PersistentState {
     pub voted_for: Option<NodeId>,
 }
 
+impl Default for PersistentState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PersistentState {
     pub fn new() -> Self {
         Self {
