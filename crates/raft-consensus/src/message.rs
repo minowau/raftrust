@@ -50,6 +50,14 @@ pub enum EntryType {
     Noop,
 }
 
+/// A TimeoutNow message sent during leadership transfer.
+/// Tells the target to immediately start an election (skipping pre-vote).
+#[derive(Debug, Clone)]
+pub struct TimeoutNow {
+    pub term: Term,
+    pub leader_id: NodeId,
+}
+
 /// A proposal from a client to be replicated via Raft.
 #[derive(Debug)]
 pub struct Proposal {
@@ -61,5 +69,6 @@ pub struct Proposal {
 pub enum ProposalResult {
     Success { index: LogIndex },
     NotLeader { leader_id: Option<NodeId> },
+    TransferInProgress,
     Error(String),
 }

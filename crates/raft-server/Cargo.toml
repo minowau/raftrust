@@ -24,6 +24,7 @@ prometheus = { workspace = true }
 parking_lot = { workspace = true }
 uuid = { workspace = true }
 anyhow = { workspace = true }
+tokio-stream = { workspace = true }
 
 [build-dependencies]
 tonic-build = { workspace = true }

@@ -1,9 +1,10 @@
 use raft_common::error::Result;
 use raft_consensus::message::{EntryType, LogEntry};
+use raft_consensus::node::RaftNode;
 use raft_mvcc::mvcc::MvccStore;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 /// A command that can be proposed to Raft and applied to the KV store.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -34,11 +35,20 @@ impl KvCommand {
 /// Applies committed Raft log entries to the MvccStore.
 pub struct ApplyLoop {
     store: Arc<MvccStore>,
+    node: Option<Arc<RaftNode>>,
 }
 
 impl ApplyLoop {
     pub fn new(store: Arc<MvccStore>) -> Self {
-        Self { store }
+        Self { store, node: None }
+    }
+
+    /// Create with a RaftNode reference for applying config changes.
+    pub fn with_node(store: Arc<MvccStore>, node: Arc<RaftNode>) -> Self {
+        Self {
+            store,
+            node: Some(node),
+        }
     }
 
     /// Apply a batch of committed entries. Returns the number applied.
@@ -65,10 +75,21 @@ impl ApplyLoop {
                     debug!(index = entry.index, "Applied no-op entry");
                 }
                 EntryType::ConfigChange => {
-                    debug!(
-                        index = entry.index,
-                        "Config change entry (not yet implemented)"
-                    );
+                    if let Some(ref node) = self.node {
+                        if let Some(new_config) = node.apply_config_change(&entry.data) {
+                            info!(
+                                index = entry.index,
+                                members = ?new_config.member_ids(),
+                                "Applied config change"
+                            );
+                        }
+                    } else {
+                        debug!(
+                            index = entry.index,
+                            "Config change entry (no node reference to apply)"
+                        );
+                    }
+                    applied += 1;
                 }
             }
         }

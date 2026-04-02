@@ -22,6 +22,11 @@ impl TickConfig {
         }
     }
 
+    /// Get the max election timeout in milliseconds (used for transfer timeout).
+    pub fn election_timeout_max_ms(&self) -> u64 {
+        self.election_timeout_max.as_millis() as u64
+    }
+
     /// Generate a randomized election timeout to prevent split votes.
     pub fn random_election_timeout(&self) -> Duration {
         let mut rng = rand::thread_rng();

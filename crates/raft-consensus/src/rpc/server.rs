@@ -1,12 +1,13 @@
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
 
-use crate::message::{AppendRequest, EntryType, LogEntry, VoteRequest};
+use crate::message::{AppendRequest, EntryType, LogEntry, TimeoutNow, VoteRequest};
 use crate::node::RaftNode;
 use crate::proto::raft::raft_service_server::RaftService;
 use crate::proto::raft::{
     AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotChunk, InstallSnapshotResponse,
-    RequestVoteRequest, RequestVoteResponse, TransferLeadershipRequest, TransferLeadershipResponse,
+    RequestVoteRequest, RequestVoteResponse, TimeoutNowRequest, TimeoutNowResponse,
+    TransferLeadershipRequest, TransferLeadershipResponse,
 };
 
 /// gRPC service implementation for Raft RPCs.
@@ -93,11 +94,32 @@ impl RaftService for RaftRpcServer {
 
     async fn transfer_leadership(
         &self,
-        _request: Request<TransferLeadershipRequest>,
+        request: Request<TransferLeadershipRequest>,
     ) -> Result<Response<TransferLeadershipResponse>, Status> {
-        // Phase 6 implementation
-        Err(Status::unimplemented(
-            "transfer_leadership not yet implemented",
-        ))
+        let req = request.into_inner();
+
+        match self.node.transfer_leadership(req.transferee) {
+            Ok(()) => Ok(Response::new(TransferLeadershipResponse { success: true })),
+            Err(e) => Err(Status::failed_precondition(format!("{:?}", e))),
+        }
+    }
+
+    async fn timeout_now(
+        &self,
+        request: Request<TimeoutNowRequest>,
+    ) -> Result<Response<TimeoutNowResponse>, Status> {
+        let req = request.into_inner();
+        let msg = TimeoutNow {
+            term: req.term,
+            leader_id: req.leader_id,
+        };
+
+        // handle_timeout_now starts an immediate election and returns vote requests.
+        // The actual vote sending is handled by the event loop, so we just trigger the state change.
+        let _vote_requests = self.node.handle_timeout_now(msg);
+
+        Ok(Response::new(TimeoutNowResponse {
+            term: self.node.term(),
+        }))
     }
 }

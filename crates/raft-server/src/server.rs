@@ -1,4 +1,5 @@
 use raft_common::types::NodeId;
+use raft_consensus::message::TimeoutNow;
 use raft_consensus::node::{NodeConfig, RaftNode};
 use raft_consensus::proto::raft::raft_service_server::RaftServiceServer;
 use raft_consensus::rpc::client::PeerClient;
@@ -114,6 +115,7 @@ impl RaftServer {
         tick_config: TickConfig,
     ) {
         let mut election_deadline = Instant::now() + tick_config.random_election_timeout();
+        let election_timeout_ms = tick_config.election_timeout_max_ms();
 
         loop {
             let role = node.role();
@@ -129,6 +131,9 @@ impl RaftServer {
                 Role::Leader => {
                     // Send heartbeats / replicate entries
                     Self::send_append_entries(&node, &peers).await;
+
+                    // Check leadership transfer progress
+                    Self::check_transfer(&node, &peers, election_timeout_ms).await;
                 }
                 Role::Follower | Role::PreCandidate => {
                     if Instant::now() >= election_deadline {
@@ -163,6 +168,7 @@ impl RaftServer {
     }
 
     /// Send AppendEntries to all peers concurrently.
+    /// Also records heartbeat acks for pending read index requests.
     async fn send_append_entries(
         node: &Arc<RaftNode>,
         peers: &Arc<Mutex<HashMap<NodeId, PeerClient>>>,
@@ -180,6 +186,10 @@ impl RaftServer {
                 if let Some(client) = peers_guard.get_mut(&peer_id) {
                     match client.append_entries(&request).await {
                         Ok(response) => {
+                            if response.success {
+                                // Record heartbeat ack for read index protocol
+                                node.read_index_ack(peer_id);
+                            }
                             node.handle_append_response(peer_id, response);
                         }
                         Err(e) => {
@@ -189,6 +199,36 @@ impl RaftServer {
                     }
                 }
             });
+        }
+    }
+
+    /// Check leadership transfer progress and send TimeoutNow if target is caught up.
+    async fn check_transfer(
+        node: &Arc<RaftNode>,
+        peers: &Arc<Mutex<HashMap<NodeId, PeerClient>>>,
+        election_timeout_ms: u64,
+    ) {
+        // Check for timeout first
+        node.check_transfer_timeout(election_timeout_ms);
+
+        // Check if target's log is caught up — if so, send TimeoutNow
+        if let Some(target) = node.check_transfer_progress() {
+            let msg = TimeoutNow {
+                term: node.term(),
+                leader_id: node.id(),
+            };
+            let mut peers_guard = peers.lock().await;
+            if let Some(client) = peers_guard.get_mut(&target) {
+                match client.timeout_now(&msg).await {
+                    Ok(_) => {
+                        info!(target = target, "Sent TimeoutNow to transfer target");
+                    }
+                    Err(e) => {
+                        debug!(target = target, error = %e, "Failed to send TimeoutNow");
+                        client.reset();
+                    }
+                }
+            }
         }
     }
 

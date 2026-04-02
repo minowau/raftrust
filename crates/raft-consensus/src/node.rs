@@ -1,11 +1,14 @@
 use parking_lot::Mutex;
 use raft_common::types::{LogIndex, NodeId, Term};
 use std::path::Path;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::election::should_grant_vote;
+use crate::leadership_transfer::TransferState;
 use crate::log::RaftLog;
+use crate::membership::{ClusterConfig, ConfigChange, MembershipError, MembershipState};
 use crate::message::*;
+use crate::read_index::ReadIndexState;
 use crate::state::*;
 use crate::tick::TickConfig;
 
@@ -34,6 +37,9 @@ struct RaftNodeInner {
     log: RaftLog,
     leader_state: Option<LeaderState>,
     election_state: Option<ElectionState>,
+    read_index_state: ReadIndexState,
+    transfer_state: Option<TransferState>,
+    membership: MembershipState,
 }
 
 impl RaftNode {
@@ -57,12 +63,17 @@ impl RaftNode {
             last_applied: 0,
         };
 
+        let membership = MembershipState::new(config.id, &config.peers);
+
         Ok(Self {
             inner: Mutex::new(RaftNodeInner {
                 state,
                 log,
                 leader_state: None,
                 election_state: None,
+                read_index_state: ReadIndexState::new(),
+                transfer_state: None,
+                membership,
             }),
             config,
         })
@@ -354,6 +365,11 @@ impl RaftNode {
             });
         }
 
+        // Reject proposals during leadership transfer
+        if inner.transfer_state.is_some() {
+            return Err(ProposalResult::TransferInProgress);
+        }
+
         let index = inner.log.last_index() + 1;
         let entry = LogEntry {
             index,
@@ -571,6 +587,290 @@ impl RaftNode {
         self.inner.lock().log.snapshot_index()
     }
 
+    // ── Read Index (Linearizable Reads) ──
+
+    /// Request a read index for linearizable reads.
+    /// Returns (request_id, read_index) if this node is the leader.
+    /// The caller must wait for heartbeat quorum confirmation before serving the read.
+    pub fn request_read_index(&self) -> Result<(u64, LogIndex), ProposalResult> {
+        let mut inner = self.inner.lock();
+
+        if inner.state.role != Role::Leader {
+            return Err(ProposalResult::NotLeader {
+                leader_id: inner.state.leader_id,
+            });
+        }
+
+        let read_index = inner.state.commit_index;
+        let cluster_size = inner.membership.current_size();
+        let id = inner
+            .read_index_state
+            .register(read_index, self.config.id, cluster_size);
+
+        // For single-node clusters, the read is immediately confirmed
+        Ok((id, read_index))
+    }
+
+    /// Record heartbeat acks for pending read index requests.
+    /// Returns IDs of read requests that are now confirmed (have quorum).
+    pub fn read_index_ack(&self, from: NodeId) -> Vec<u64> {
+        let mut inner = self.inner.lock();
+        inner.read_index_state.record_ack(from)
+    }
+
+    /// Check if a read index request is confirmed (has quorum).
+    pub fn is_read_index_confirmed(&self, id: u64) -> bool {
+        self.inner.lock().read_index_state.is_confirmed(id)
+    }
+
+    /// Take a confirmed read index and remove it from pending.
+    pub fn take_read_index(&self, id: u64) -> Option<LogIndex> {
+        self.inner.lock().read_index_state.take_confirmed(id)
+    }
+
+    /// Get the last applied index (for checking if state machine is caught up).
+    pub fn last_applied(&self) -> LogIndex {
+        self.inner.lock().state.last_applied
+    }
+
+    // ── Leadership Transfer ──
+
+    /// Initiate a leadership transfer to the target node.
+    /// The leader will stop accepting proposals and bring the target up to date.
+    pub fn transfer_leadership(
+        &self,
+        target: NodeId,
+    ) -> Result<(), crate::leadership_transfer::TransferError> {
+        use crate::leadership_transfer::TransferError;
+
+        let mut inner = self.inner.lock();
+
+        if inner.state.role != Role::Leader {
+            return Err(TransferError::NotLeader);
+        }
+        if target == self.config.id {
+            return Err(TransferError::AlreadyLeader);
+        }
+        if inner.transfer_state.is_some() {
+            return Err(TransferError::AlreadyInProgress);
+        }
+        if !inner.membership.is_voter(target) {
+            return Err(TransferError::TargetNotInCluster);
+        }
+
+        info!(
+            node = self.config.id,
+            target = target,
+            "Initiating leadership transfer"
+        );
+        inner.transfer_state = Some(TransferState::new(target));
+        Ok(())
+    }
+
+    /// Check if the transfer target's log is caught up and we should send TimeoutNow.
+    /// Returns Some(target) if we should send TimeoutNow, None otherwise.
+    pub fn check_transfer_progress(&self) -> Option<NodeId> {
+        let mut inner = self.inner.lock();
+
+        let target = match inner.transfer_state {
+            Some(ref t) if !t.timeout_now_sent => t.target,
+            _ => return None,
+        };
+
+        let our_last = inner.log.last_index();
+        let target_match = inner
+            .leader_state
+            .as_ref()
+            .and_then(|l| l.match_index.get(&target).copied())
+            .unwrap_or(0);
+
+        if target_match >= our_last {
+            if let Some(ref mut transfer) = inner.transfer_state {
+                transfer.timeout_now_sent = true;
+            }
+            return Some(target);
+        }
+
+        None
+    }
+
+    /// Check if a leadership transfer has timed out and should be aborted.
+    /// Returns true if the transfer was aborted.
+    pub fn check_transfer_timeout(&self, timeout_ms: u64) -> bool {
+        let mut inner = self.inner.lock();
+        if let Some(ref transfer) = inner.transfer_state {
+            if transfer.is_expired(timeout_ms) {
+                warn!(
+                    node = self.config.id,
+                    target = transfer.target,
+                    "Leadership transfer timed out, aborting"
+                );
+                inner.transfer_state = None;
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Whether a leadership transfer is in progress (blocks new proposals).
+    pub fn is_transfer_in_progress(&self) -> bool {
+        self.inner.lock().transfer_state.is_some()
+    }
+
+    /// Handle a TimeoutNow message from the current leader.
+    /// This node should immediately start an election (skip pre-vote).
+    pub fn handle_timeout_now(&self, msg: TimeoutNow) -> Vec<(NodeId, VoteRequest)> {
+        let mut inner = self.inner.lock();
+
+        // Only handle if it's from a legitimate leader at current or higher term
+        if msg.term < inner.state.persistent.current_term {
+            return vec![];
+        }
+
+        info!(
+            node = self.config.id,
+            from = msg.leader_id,
+            "Received TimeoutNow, starting immediate election"
+        );
+
+        // Start election immediately (skip pre-vote per Raft spec for transfers)
+        inner.state.persistent.current_term += 1;
+        inner.state.persistent.voted_for = Some(self.config.id);
+        inner.state.role = Role::Candidate;
+        inner.state.leader_id = None;
+
+        self.save_persistent(&inner.state.persistent);
+
+        let mut election = ElectionState::new(self.cluster_size());
+        election.record_vote(self.config.id);
+
+        let request = VoteRequest {
+            term: inner.state.persistent.current_term,
+            candidate_id: self.config.id,
+            last_log_index: inner.log.last_index(),
+            last_log_term: inner.log.last_term(),
+            is_pre_vote: false,
+        };
+
+        inner.election_state = Some(election);
+
+        self.config
+            .peers
+            .iter()
+            .map(|&peer| (peer, request.clone()))
+            .collect()
+    }
+
+    // ── Membership Changes (Joint Consensus) ──
+
+    /// Propose a membership change (add or remove a node).
+    /// Initiates joint consensus by proposing a C_old,new config entry.
+    /// Returns the log index of the proposed config change entry.
+    pub fn propose_config_change(&self, change: ConfigChange) -> Result<LogIndex, MembershipError> {
+        let mut inner = self.inner.lock();
+
+        if inner.state.role != Role::Leader {
+            return Err(MembershipError::NotLeader);
+        }
+
+        let joint_data = inner.membership.begin_change(&change)?;
+        let encoded = joint_data.encode();
+
+        let index = inner.log.last_index() + 1;
+        let entry = LogEntry {
+            index,
+            term: inner.state.persistent.current_term,
+            data: encoded,
+            entry_type: EntryType::ConfigChange,
+        };
+
+        inner
+            .log
+            .append(vec![entry])
+            .map_err(|_| MembershipError::InvalidConfigData)?;
+
+        // Update own match_index
+        let last_idx = inner.log.last_index();
+        if let Some(ref mut leader) = inner.leader_state {
+            leader.match_index.insert(self.config.id, last_idx);
+        }
+
+        info!(
+            node = self.config.id,
+            index = index,
+            "Proposed config change entry (joint consensus)"
+        );
+
+        Ok(index)
+    }
+
+    /// Called when a config change entry is committed.
+    /// If it's a joint config (C_old,new), proposes the final C_new entry.
+    /// Returns the new config if a finalization entry was proposed.
+    pub fn apply_config_change(&self, data: &[u8]) -> Option<ClusterConfig> {
+        use crate::membership::JointConfigData;
+
+        let mut inner = self.inner.lock();
+
+        // Try to decode as joint config first
+        if let Ok(joint) = JointConfigData::decode(data) {
+            // This is the C_old,new entry being committed.
+            // Apply the joint config and, if we're leader, propose C_new.
+            inner.membership.pending = Some(joint.new.clone());
+
+            if inner.state.role == Role::Leader {
+                // Finalize: propose C_new entry
+                if let Some(new_config) = inner.membership.finalize_joint() {
+                    let encoded = serde_json::to_vec(&new_config).unwrap_or_default();
+                    let index = inner.log.last_index() + 1;
+                    let entry = LogEntry {
+                        index,
+                        term: inner.state.persistent.current_term,
+                        data: encoded,
+                        entry_type: EntryType::ConfigChange,
+                    };
+                    let _ = inner.log.append(vec![entry]);
+
+                    let last_idx = inner.log.last_index();
+                    if let Some(ref mut leader) = inner.leader_state {
+                        leader.match_index.insert(self.config.id, last_idx);
+                    }
+
+                    info!(node = self.config.id, "Proposed final config (C_new) entry");
+                    return Some(new_config);
+                }
+            }
+            return None;
+        }
+
+        // Try to decode as final config (C_new)
+        if let Ok(new_config) = serde_json::from_slice::<ClusterConfig>(data) {
+            inner.membership.apply_new_config(new_config.clone());
+            info!(
+                node = self.config.id,
+                members = ?new_config.member_ids(),
+                "Applied new cluster configuration"
+            );
+            return Some(new_config);
+        }
+
+        warn!(
+            node = self.config.id,
+            "Failed to decode config change entry"
+        );
+        None
+    }
+
+    /// Get the current membership state.
+    pub fn membership(&self) -> MembershipState {
+        self.inner.lock().membership.clone()
+    }
+
+    /// Check if this node is still a voter in the current configuration.
+    pub fn is_voter(&self) -> bool {
+        self.inner.lock().membership.is_voter(self.config.id)
+    }
+
     // ── Internal helpers ──
 
     fn become_leader_inner(&self, inner: &mut RaftNodeInner) {
@@ -616,6 +916,9 @@ impl RaftNode {
         inner.state.leader_id = None;
         inner.leader_state = None;
         inner.election_state = None;
+        inner.read_index_state.clear();
+        inner.transfer_state = None;
+        inner.membership.abort_change();
         self.save_persistent(&inner.state.persistent);
     }
 
@@ -625,18 +928,31 @@ impl RaftNode {
             None => return,
         };
 
-        // Find the highest index replicated on a majority
+        // Find the highest N such that a quorum has match_index >= N
+        // and log[N].term == currentTerm (§5.4.2).
+        // During joint consensus, quorum requires majorities in BOTH configs.
         let mut match_indices: Vec<LogIndex> = leader.match_index.values().copied().collect();
-        match_indices.sort_unstable();
+        match_indices.sort_unstable_by(|a, b| b.cmp(a)); // descending
 
-        let quorum_idx = match_indices.len() / 2; // majority position
-        let new_commit = match_indices[quorum_idx];
+        for &candidate in &match_indices {
+            if candidate <= inner.state.commit_index {
+                break;
+            }
 
-        // Only commit entries from our current term (§5.4.2)
-        if new_commit > inner.state.commit_index {
-            if let Some(entry) = inner.log.get(new_commit) {
-                if entry.term == inner.state.persistent.current_term {
-                    inner.state.commit_index = new_commit;
+            // Check if this candidate index has quorum
+            let voters: std::collections::HashSet<NodeId> = leader
+                .match_index
+                .iter()
+                .filter(|(_, &idx)| idx >= candidate)
+                .map(|(&id, _)| id)
+                .collect();
+
+            if inner.membership.has_quorum(&voters) {
+                if let Some(entry) = inner.log.get(candidate) {
+                    if entry.term == inner.state.persistent.current_term {
+                        inner.state.commit_index = candidate;
+                        return;
+                    }
                 }
             }
         }
@@ -870,5 +1186,429 @@ mod tests {
         let resp = follower.handle_append_entries(req);
         assert!(resp.success);
         assert_eq!(resp.match_index, 1);
+    }
+
+    // ── Phase 6: Read Index Tests ──
+
+    fn make_leader(dir: &Path) -> RaftNode {
+        let node = make_node(1, vec![2, 3], dir);
+        node.start_election();
+        {
+            let mut inner = node.inner.lock();
+            node.become_leader_inner(&mut inner);
+        }
+        assert_eq!(node.role(), Role::Leader);
+        node
+    }
+
+    #[test]
+    fn read_index_single_node() {
+        let dir = tempfile::tempdir().unwrap();
+        let node = make_node(1, vec![], dir.path());
+        node.start_election();
+        {
+            let mut inner = node.inner.lock();
+            node.become_leader_inner(&mut inner);
+        }
+
+        let (id, _read_idx) = node.request_read_index().unwrap();
+        // Single node: immediately confirmed
+        assert!(node.is_read_index_confirmed(id));
+    }
+
+    #[test]
+    fn read_index_three_node_quorum() {
+        let dir = tempfile::tempdir().unwrap();
+        let leader = make_leader(dir.path());
+
+        let (id, _read_idx) = leader.request_read_index().unwrap();
+        // Not yet confirmed — need 1 more ack
+        assert!(!leader.is_read_index_confirmed(id));
+
+        // Simulate heartbeat ack from node 2
+        leader.read_index_ack(2);
+        assert!(leader.is_read_index_confirmed(id));
+    }
+
+    #[test]
+    fn read_index_rejected_on_follower() {
+        let dir = tempfile::tempdir().unwrap();
+        let node = make_node(1, vec![2, 3], dir.path());
+        assert!(node.request_read_index().is_err());
+    }
+
+    #[test]
+    fn read_index_cleared_on_step_down() {
+        let dir = tempfile::tempdir().unwrap();
+        let leader = make_leader(dir.path());
+
+        let (id, _) = leader.request_read_index().unwrap();
+        assert!(!leader.is_read_index_confirmed(id));
+
+        // Step down via higher term
+        let req = AppendRequest {
+            term: 10,
+            leader_id: 2,
+            prev_log_index: 0,
+            prev_log_term: 0,
+            entries: vec![],
+            leader_commit: 0,
+        };
+        leader.handle_append_entries(req);
+        assert_eq!(leader.role(), Role::Follower);
+
+        // Read index should be cleared
+        assert!(!leader.is_read_index_confirmed(id));
+        assert_eq!(leader.take_read_index(id), None);
+    }
+
+    // ── Phase 6: Leadership Transfer Tests ──
+
+    #[test]
+    fn transfer_leadership_basic() {
+        let dir = tempfile::tempdir().unwrap();
+        let leader = make_leader(dir.path());
+
+        assert!(leader.transfer_leadership(2).is_ok());
+        assert!(leader.is_transfer_in_progress());
+    }
+
+    #[test]
+    fn transfer_rejects_proposals() {
+        let dir = tempfile::tempdir().unwrap();
+        let leader = make_leader(dir.path());
+
+        leader.transfer_leadership(2).unwrap();
+
+        // Proposals should be rejected during transfer
+        let result = leader.propose(b"data".to_vec());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn transfer_rejects_non_leader() {
+        let dir = tempfile::tempdir().unwrap();
+        let node = make_node(1, vec![2, 3], dir.path());
+
+        let result = node.transfer_leadership(2);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn transfer_rejects_self() {
+        let dir = tempfile::tempdir().unwrap();
+        let leader = make_leader(dir.path());
+
+        let result = leader.transfer_leadership(1); // self
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn transfer_rejects_unknown_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let leader = make_leader(dir.path());
+
+        let result = leader.transfer_leadership(99);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn transfer_rejects_duplicate() {
+        let dir = tempfile::tempdir().unwrap();
+        let leader = make_leader(dir.path());
+
+        leader.transfer_leadership(2).unwrap();
+        let result = leader.transfer_leadership(3);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn transfer_timeout_now_sent_when_caught_up() {
+        let dir = tempfile::tempdir().unwrap();
+        let leader = make_leader(dir.path());
+        let follower = make_node(2, vec![1, 3], dir.path());
+
+        // Replicate to follower so it's caught up
+        let requests = leader.create_append_requests();
+        let (_, req) = requests.into_iter().find(|(id, _)| *id == 2).unwrap();
+        let resp = follower.handle_append_entries(req);
+        leader.handle_append_response(2, resp);
+
+        // Start transfer
+        leader.transfer_leadership(2).unwrap();
+
+        // Target is caught up — should return target for TimeoutNow
+        let target = leader.check_transfer_progress();
+        assert_eq!(target, Some(2));
+
+        // Second check: already sent
+        assert_eq!(leader.check_transfer_progress(), None);
+    }
+
+    #[test]
+    fn transfer_timeout_now_not_sent_when_behind() {
+        let dir = tempfile::tempdir().unwrap();
+        let leader = make_leader(dir.path());
+
+        // Propose some entries (follower won't have them)
+        leader.propose(b"data1".to_vec()).unwrap();
+        leader.propose(b"data2".to_vec()).unwrap();
+
+        leader.transfer_leadership(2).unwrap();
+
+        // Target is behind — no TimeoutNow yet
+        assert_eq!(leader.check_transfer_progress(), None);
+    }
+
+    #[test]
+    fn handle_timeout_now_starts_election() {
+        let dir = tempfile::tempdir().unwrap();
+        let follower = make_node(2, vec![1, 3], dir.path());
+
+        let msg = TimeoutNow {
+            term: 1,
+            leader_id: 1,
+        };
+        let vote_requests = follower.handle_timeout_now(msg);
+
+        assert_eq!(follower.role(), Role::Candidate);
+        assert_eq!(follower.term(), 1);
+        assert_eq!(vote_requests.len(), 2); // Requests to peers 1 and 3
+                                            // Verify requests are NOT pre-vote (skip pre-vote for transfers)
+        for (_, req) in &vote_requests {
+            assert!(!req.is_pre_vote);
+        }
+    }
+
+    #[test]
+    fn transfer_cleared_on_step_down() {
+        let dir = tempfile::tempdir().unwrap();
+        let leader = make_leader(dir.path());
+
+        leader.transfer_leadership(2).unwrap();
+        assert!(leader.is_transfer_in_progress());
+
+        // Step down
+        let req = AppendRequest {
+            term: 10,
+            leader_id: 2,
+            prev_log_index: 0,
+            prev_log_term: 0,
+            entries: vec![],
+            leader_commit: 0,
+        };
+        leader.handle_append_entries(req);
+
+        assert!(!leader.is_transfer_in_progress());
+    }
+
+    #[test]
+    fn transfer_timeout_aborts() {
+        let dir = tempfile::tempdir().unwrap();
+        let leader = make_leader(dir.path());
+
+        leader.transfer_leadership(2).unwrap();
+        assert!(leader.is_transfer_in_progress());
+
+        // Use 0ms timeout to force expiration
+        std::thread::sleep(std::time::Duration::from_millis(1));
+        let aborted = leader.check_transfer_timeout(0);
+        assert!(aborted);
+        assert!(!leader.is_transfer_in_progress());
+    }
+
+    // ── Phase 6: Membership Change Tests ──
+
+    #[test]
+    fn propose_add_node() {
+        let dir = tempfile::tempdir().unwrap();
+        let leader = make_leader(dir.path());
+
+        let index = leader
+            .propose_config_change(ConfigChange::AddNode {
+                id: 4,
+                address: "127.0.0.1:5004".to_string(),
+            })
+            .unwrap();
+        assert!(index > 0);
+
+        let membership = leader.membership();
+        assert!(membership.in_joint_consensus());
+    }
+
+    #[test]
+    fn propose_remove_node() {
+        let dir = tempfile::tempdir().unwrap();
+        let leader = make_leader(dir.path());
+
+        let index = leader
+            .propose_config_change(ConfigChange::RemoveNode { id: 3 })
+            .unwrap();
+        assert!(index > 0);
+
+        let membership = leader.membership();
+        assert!(membership.in_joint_consensus());
+    }
+
+    #[test]
+    fn config_change_rejected_on_follower() {
+        let dir = tempfile::tempdir().unwrap();
+        let node = make_node(1, vec![2, 3], dir.path());
+
+        let result = node.propose_config_change(ConfigChange::AddNode {
+            id: 4,
+            address: "127.0.0.1:5004".to_string(),
+        });
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn config_change_rejected_concurrent() {
+        let dir = tempfile::tempdir().unwrap();
+        let leader = make_leader(dir.path());
+
+        leader
+            .propose_config_change(ConfigChange::AddNode {
+                id: 4,
+                address: "127.0.0.1:5004".to_string(),
+            })
+            .unwrap();
+
+        // Second change should be rejected
+        let result = leader.propose_config_change(ConfigChange::AddNode {
+            id: 5,
+            address: "127.0.0.1:5005".to_string(),
+        });
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn joint_quorum_during_add() {
+        let dir = tempfile::tempdir().unwrap();
+        let leader = make_leader(dir.path());
+        let follower2 = make_node(2, vec![1, 3], dir.path());
+        let follower3 = make_node(3, vec![1, 2], dir.path());
+
+        // Propose adding node 4
+        leader
+            .propose_config_change(ConfigChange::AddNode {
+                id: 4,
+                address: "127.0.0.1:5004".to_string(),
+            })
+            .unwrap();
+
+        // During joint consensus, need quorum in both old (1,2,3) and new (1,2,3,4).
+        // Replicate to follower 2 — gives us {1,2}: 2/3 old quorum, 2/4 new = NOT quorum
+        let requests = leader.create_append_requests();
+        let (_, req2) = requests.iter().find(|(id, _)| *id == 2).unwrap();
+        let resp2 = follower2.handle_append_entries(req2.clone());
+        leader.handle_append_response(2, resp2);
+
+        // Commit index should NOT advance (need 3/4 in new config)
+        // The no-op is committed but config change needs joint quorum
+        // Actually, the leader has {1,2} matching. Old: 2/3 ok. New: 2/4 not ok.
+        // But the no-op entry at index 1 was committed before joint config started.
+        // The config change entry itself needs joint quorum to commit.
+
+        // Now replicate to follower 3 as well
+        let requests = leader.create_append_requests();
+        let (_, req3) = requests.iter().find(|(id, _)| *id == 3).unwrap();
+        let resp3 = follower3.handle_append_entries(req3.clone());
+        leader.handle_append_response(3, resp3);
+
+        // Now {1,2,3}: 3/3 old quorum, 3/4 new quorum — both satisfied
+        // Commit index should advance
+        assert!(leader.commit_index() > 0);
+    }
+
+    #[test]
+    fn membership_abort_on_step_down() {
+        let dir = tempfile::tempdir().unwrap();
+        let leader = make_leader(dir.path());
+
+        leader
+            .propose_config_change(ConfigChange::AddNode {
+                id: 4,
+                address: "127.0.0.1:5004".to_string(),
+            })
+            .unwrap();
+        assert!(leader.membership().in_joint_consensus());
+
+        // Step down
+        let req = AppendRequest {
+            term: 10,
+            leader_id: 2,
+            prev_log_index: 0,
+            prev_log_term: 0,
+            entries: vec![],
+            leader_commit: 0,
+        };
+        leader.handle_append_entries(req);
+
+        // Joint consensus should be aborted
+        let membership = leader.membership();
+        assert!(!membership.in_joint_consensus());
+        assert!(!membership.change_in_progress);
+    }
+
+    // ── Phase 6: End-to-End Leadership Transfer via TimeoutNow ──
+
+    #[test]
+    fn full_leadership_transfer_flow() {
+        let dir = tempfile::tempdir().unwrap();
+        let leader = make_node(1, vec![2, 3], dir.path());
+        let target = make_node(2, vec![1, 3], dir.path());
+        let node3 = make_node(3, vec![1, 2], dir.path());
+
+        // Elect node 1 as leader
+        leader.start_election();
+        {
+            let mut inner = leader.inner.lock();
+            leader.become_leader_inner(&mut inner);
+        }
+
+        // Replicate to node 2 so it's caught up
+        let requests = leader.create_append_requests();
+        let (_, req) = requests.into_iter().find(|(id, _)| *id == 2).unwrap();
+        let resp = target.handle_append_entries(req);
+        leader.handle_append_response(2, resp);
+
+        // Initiate transfer to node 2
+        leader.transfer_leadership(2).unwrap();
+
+        // Node 2 is caught up — check_transfer_progress returns target
+        let transfer_target = leader.check_transfer_progress();
+        assert_eq!(transfer_target, Some(2));
+
+        // Send TimeoutNow to node 2
+        let msg = TimeoutNow {
+            term: leader.term(),
+            leader_id: 1,
+        };
+        let vote_requests = target.handle_timeout_now(msg);
+        assert_eq!(target.role(), Role::Candidate);
+
+        // Node 2 gets vote from node 3
+        let (_, vote_req) = vote_requests.iter().find(|(id, _)| *id == 3).unwrap();
+        let resp = node3.handle_vote_request(vote_req.clone());
+        assert!(resp.vote_granted);
+
+        let became_leader = target.handle_vote_response(3, resp, false);
+        assert!(became_leader);
+        assert_eq!(target.role(), Role::Leader);
+
+        // Original leader steps down when it sees the new term
+        let new_term = target.term();
+        let req = AppendRequest {
+            term: new_term,
+            leader_id: 2,
+            prev_log_index: 0,
+            prev_log_term: 0,
+            entries: vec![],
+            leader_commit: 0,
+        };
+        leader.handle_append_entries(req);
+        assert_eq!(leader.role(), Role::Follower);
+        assert_eq!(leader.leader_id(), Some(2));
     }
 }

@@ -6,6 +6,7 @@ service RaftService {
   rpc AppendEntries(AppendEntriesRequest) returns (AppendEntriesResponse);
   rpc InstallSnapshot(stream InstallSnapshotChunk) returns (InstallSnapshotResponse);
   rpc TransferLeadership(TransferLeadershipRequest) returns (TransferLeadershipResponse);
+  rpc TimeoutNow(TimeoutNowRequest) returns (TimeoutNowResponse);
 }
 
 message RequestVoteRequest {
@@ -69,4 +70,13 @@ message TransferLeadershipRequest {
 
 message TransferLeadershipResponse {
   bool success = 1;
+}
+
+message TimeoutNowRequest {
+  uint64 term = 1;
+  uint64 leader_id = 2;
+}
+
+message TimeoutNowResponse {
+  uint64 term = 1;
 }

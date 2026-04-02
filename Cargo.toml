@@ -53,6 +53,9 @@ anyhow = "1"
 parking_lot = "0.12"
 crossbeam-channel = "0.5"
 
+# Streaming
+tokio-stream = "0.1"
+
 # Misc
 rand = "0.8"
 uuid = { version = "1", features = ["v4"] }

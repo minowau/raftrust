@@ -1,9 +1,14 @@
 use raft_common::types::NodeId;
 use tonic::transport::Channel;
 
-use crate::message::{AppendRequest, AppendResponse, EntryType, VoteRequest, VoteResponse};
+use crate::message::{
+    AppendRequest, AppendResponse, EntryType, TimeoutNow, VoteRequest, VoteResponse,
+};
 use crate::proto::raft::raft_service_client::RaftServiceClient;
-use crate::proto::raft::{self as pb, AppendEntriesRequest, RequestVoteRequest};
+use crate::proto::raft::{
+    self as pb, AppendEntriesRequest, RequestVoteRequest, TimeoutNowRequest,
+    TransferLeadershipRequest,
+};
 
 /// gRPC client for peer-to-peer Raft communication.
 pub struct PeerClient {
@@ -92,6 +97,27 @@ impl PeerClient {
             success: resp.success,
             match_index: resp.match_index,
         })
+    }
+
+    /// Send a TransferLeadership RPC.
+    pub async fn transfer_leadership(&mut self, target: NodeId) -> Result<bool, tonic::Status> {
+        let client = self.connect().await?;
+        let response = client
+            .transfer_leadership(TransferLeadershipRequest { transferee: target })
+            .await?;
+        Ok(response.into_inner().success)
+    }
+
+    /// Send a TimeoutNow RPC (tells the target to immediately start an election).
+    pub async fn timeout_now(&mut self, msg: &TimeoutNow) -> Result<u64, tonic::Status> {
+        let client = self.connect().await?;
+        let response = client
+            .timeout_now(TimeoutNowRequest {
+                term: msg.term,
+                leader_id: msg.leader_id,
+            })
+            .await?;
+        Ok(response.into_inner().term)
     }
 
     /// Reset the connection (e.g., after a failure).
