@@ -6,6 +6,7 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "MVCC layer with versioned keys, snapshot isolation, OCC transactions, and TTL key expiry"
+readme = "../../README.md"
 
 [dependencies]
 raft-common = { workspace = true }

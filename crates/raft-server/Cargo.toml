@@ -6,6 +6,7 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Full Raft KV server: KV/Watch/Lease/Admin gRPC services, apply loop, HTTP endpoints"
+readme = "../../README.md"
 
 [dependencies]
 raft-common = { workspace = true }

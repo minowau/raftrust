@@ -6,6 +6,7 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Chaos testing framework: network partitions, disk failures, clock skew, in-process cluster harness"
+readme = "../../README.md"
 
 [dependencies]
 raft-common = { workspace = true }

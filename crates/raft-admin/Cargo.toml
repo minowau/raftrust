@@ -6,6 +6,7 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Admin CLI for the raft distributed KV store: put, get, delete, status, transfer"
+readme = "../../README.md"
 
 [dependencies]
 raft-common = { workspace = true }
