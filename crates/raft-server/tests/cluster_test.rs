@@ -228,3 +228,81 @@ fn apply_loop_integration() {
     let kv = store.get(b"name").unwrap().unwrap();
     assert_eq!(kv.value, b"raft");
 }
+
+#[test]
+fn snapshot_and_log_compaction() {
+    let dir = tempfile::tempdir().unwrap();
+    let n1 = make_node(1, vec![2, 3], dir.path());
+    let n2 = make_node(2, vec![1, 3], dir.path());
+    let n3 = make_node(3, vec![1, 2], dir.path());
+    let nodes: Vec<&RaftNode> = vec![&n1, &n2, &n3];
+    elect_leader(&nodes);
+
+    // Propose several entries
+    for i in 0..10 {
+        n1.propose(format!("entry-{}", i).into_bytes()).unwrap();
+    }
+    replicate(&n1, &[&n2, &n3]);
+
+    // Trigger snapshot
+    let meta = n1.trigger_snapshot(b"snapshot-state-data").unwrap();
+    assert!(meta.last_included_index > 0);
+
+    // Log should be compacted
+    assert_eq!(n1.snapshot_index(), meta.last_included_index);
+}
+
+#[test]
+fn install_snapshot_on_lagging_follower() {
+    let dir = tempfile::tempdir().unwrap();
+    let n1 = make_node(1, vec![2, 3], dir.path());
+    let n2 = make_node(2, vec![1, 3], dir.path());
+    let n3 = make_node(3, vec![1, 2], dir.path());
+    let nodes: Vec<&RaftNode> = vec![&n1, &n2, &n3];
+    elect_leader(&nodes);
+
+    // Propose entries and replicate only to n2
+    for i in 0..10 {
+        n1.propose(format!("entry-{}", i).into_bytes()).unwrap();
+    }
+    let requests = n1.create_append_requests();
+    for (peer_id, req) in &requests {
+        if *peer_id == 2 {
+            let resp = n2.handle_append_entries(req.clone());
+            n1.handle_append_response(*peer_id, resp);
+        }
+    }
+
+    // Snapshot on leader and compact log
+    let meta = n1.trigger_snapshot(b"full-state").unwrap();
+
+    // n3 is lagging — install snapshot
+    let (snap_meta, snap_data) = n1.get_snapshot_for_follower().unwrap();
+    let term = n3.handle_install_snapshot(n1.term(), 1, &snap_meta, &snap_data);
+    assert_eq!(term, n1.term());
+
+    // n3 should now have the snapshot index
+    assert_eq!(n3.snapshot_index(), meta.last_included_index);
+    assert!(n3.commit_index() >= meta.last_included_index);
+}
+
+#[test]
+fn snapshot_checksum_verified() {
+    use raft_consensus::snapshot::SnapshotManager;
+
+    let dir = tempfile::tempdir().unwrap();
+    let mgr = SnapshotManager::new(&dir.path().join("snap")).unwrap();
+
+    // Create valid snapshot
+    mgr.create_snapshot(100, 5, b"valid data").unwrap();
+
+    // Corrupt data file
+    let data_path = dir
+        .path()
+        .join("snap")
+        .join("snapshot-00000000000000000100.data");
+    std::fs::write(&data_path, b"corrupted!").unwrap();
+
+    // Loading should fail
+    assert!(mgr.load_latest().is_err());
+}

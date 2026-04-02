@@ -459,6 +459,118 @@ impl RaftNode {
         entries
     }
 
+    // ── Snapshots ──
+
+    /// Trigger a snapshot at the current commit index.
+    /// `snapshot_data` is the serialized state machine provided by the caller.
+    /// Returns the snapshot metadata, or None if there's nothing to snapshot.
+    pub fn trigger_snapshot(
+        &self,
+        snapshot_data: &[u8],
+    ) -> Option<crate::snapshot::SnapshotMetadata> {
+        let mut inner = self.inner.lock();
+        let commit_index = inner.state.commit_index;
+        if commit_index == 0 {
+            return None;
+        }
+
+        let commit_term = inner.log.term_at(commit_index).unwrap_or(0);
+
+        let snapshot_dir = Path::new(&self.config.data_dir).join("snapshots");
+        let mgr = crate::snapshot::SnapshotManager::new(&snapshot_dir).ok()?;
+        let meta = mgr
+            .create_snapshot(commit_index, commit_term, snapshot_data)
+            .ok()?;
+
+        // Compact the log
+        inner.log.compact(commit_index, commit_term);
+
+        info!(
+            node = self.config.id,
+            index = commit_index,
+            "Snapshot created, log compacted"
+        );
+
+        Some(meta)
+    }
+
+    /// Check if we should trigger a snapshot (log is too long).
+    pub fn should_snapshot(&self, threshold: u64) -> bool {
+        let inner = self.inner.lock();
+        inner.log.len() as u64 > threshold
+    }
+
+    /// Handle an InstallSnapshot from the leader.
+    /// Returns the current term.
+    pub fn handle_install_snapshot(
+        &self,
+        leader_term: Term,
+        leader_id: NodeId,
+        metadata: &crate::snapshot::SnapshotMetadata,
+        data: &[u8],
+    ) -> Term {
+        let mut inner = self.inner.lock();
+
+        if leader_term < inner.state.persistent.current_term {
+            return inner.state.persistent.current_term;
+        }
+
+        if leader_term > inner.state.persistent.current_term {
+            self.step_down_inner(&mut inner, leader_term);
+        }
+        inner.state.role = Role::Follower;
+        inner.state.leader_id = Some(leader_id);
+
+        // If we already have this snapshot or beyond, ignore
+        if metadata.last_included_index <= inner.log.snapshot_index() {
+            return inner.state.persistent.current_term;
+        }
+
+        // Save snapshot to disk
+        let snapshot_dir = Path::new(&self.config.data_dir).join("snapshots");
+        if let Ok(mgr) = crate::snapshot::SnapshotManager::new(&snapshot_dir) {
+            if mgr.receive_snapshot(metadata, data).is_err() {
+                return inner.state.persistent.current_term;
+            }
+        }
+
+        // Discard log entries up to the snapshot
+        inner
+            .log
+            .compact(metadata.last_included_index, metadata.last_included_term);
+
+        // Reset state machine index
+        if metadata.last_included_index > inner.state.commit_index {
+            inner.state.commit_index = metadata.last_included_index;
+        }
+        if metadata.last_included_index > inner.state.last_applied {
+            inner.state.last_applied = metadata.last_included_index;
+        }
+
+        info!(
+            node = self.config.id,
+            snapshot_index = metadata.last_included_index,
+            "Installed snapshot from leader"
+        );
+
+        inner.state.persistent.current_term
+    }
+
+    /// Get snapshot info for sending to a lagging follower.
+    /// Returns (metadata, data) or None if no snapshot exists.
+    pub fn get_snapshot_for_follower(
+        &self,
+    ) -> Option<(crate::snapshot::SnapshotMetadata, Vec<u8>)> {
+        let snapshot_dir = Path::new(&self.config.data_dir).join("snapshots");
+        let mgr = crate::snapshot::SnapshotManager::new(&snapshot_dir).ok()?;
+        mgr.load_latest().ok()?
+    }
+
+    /// Get the snapshot index (for determining if a follower needs a snapshot).
+    pub fn snapshot_index(&self) -> LogIndex {
+        self.inner.lock().log.snapshot_index()
+    }
+
     // ── Internal helpers ──
 
     fn become_leader_inner(&self, inner: &mut RaftNodeInner) {
