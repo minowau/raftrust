@@ -1,37 +1,58 @@
-# Distributed KV Store with Raft Consensus
+# Raft
 
-A production-quality distributed key-value store built from scratch in Rust, implementing the Raft consensus algorithm for fault-tolerant replication. Equivalent to [etcd](https://etcd.io) — the distributed KV store that Kubernetes uses for all cluster state.
+[![CI](https://github.com/louisphilipmarcoux/raft/actions/workflows/ci.yml/badge.svg)](https://github.com/louisphilipmarcoux/raft/actions/workflows/ci.yml)
+[![Rust](https://img.shields.io/badge/Rust-1.75+-DEA584?logo=rust&logoColor=white)](https://www.rust-lang.org)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Tests](https://img.shields.io/badge/Tests-230+-brightgreen)](https://github.com/louisphilipmarcoux/raft/actions)
 
-## What It Is
+A production-grade distributed key-value store written in Rust, implementing the Raft consensus algorithm for fault-tolerant replication.
 
-A strongly-consistent, replicated key-value store that:
-- **Survives node failures**: any minority of nodes can crash without data loss
-- **Elects leaders automatically**: with pre-vote to prevent disruptive elections
-- **Provides linearizable reads**: via the read index protocol (no stale data)
-- **Supports live reconfiguration**: add/remove nodes without downtime via joint consensus
-- **Watches keys in real-time**: gRPC streaming for instant change notifications
-- **Manages distributed locks**: via leases with automatic expiry on client death
+Raft implements leader election with pre-vote, log replication, snapshots, linearizable reads, leadership transfer, joint consensus membership changes, MVCC with OCC transactions, and a custom LSM-tree storage engine — the same architecture used by [etcd](https://etcd.io), the distributed KV store that Kubernetes uses for all cluster state.
 
-## What It Guarantees
+## What Raft Does
 
-- Every write acknowledged by the leader is replicated to a majority before commit
-- No two leaders exist in the same term (Raft safety property)
-- Reads via the read index protocol are linearizable
-- Membership changes never create split-brain (joint consensus)
-- Crash recovery loses zero committed data (WAL with CRC32 checksums)
-- Snapshots are integrity-verified (CRC32 checksum on every snapshot)
+- **Consensus**: leader election with pre-vote, log replication, commit via quorum
+- **Linearizable reads**: read index protocol — confirms leadership via heartbeat quorum before serving
+- **Leadership transfer**: graceful handoff via TimeoutNow, proposal blocking during transfer
+- **Membership changes**: joint consensus (C_old,new → C_new), add/remove nodes without downtime
+- **Snapshots**: CRC32-verified snapshots, log compaction, InstallSnapshot for lagging followers
+- **Storage engine**: custom LSM-tree — WAL with CRC32 checksums, MemTable, SSTables, bloom filters, leveled compaction
+- **MVCC**: versioned keys, point-in-time reads, snapshot isolation, OCC transactions, TTL/key expiry
+- **Watch API**: gRPC bidirectional streaming for real-time key change notifications
+- **Leases**: grant/keepalive/revoke with auto-expiry, distributed locks via key attachment
+- **Admin API**: add/remove nodes, transfer leadership, drain node, trigger compaction, backup/restore
+- **Observability**: 27 Prometheus metrics, `/health` + `/ready` endpoints, structured JSON logging
+- **Chaos testing**: network partition injection, disk failure simulation, clock skew, in-process cluster harness
 
-## What It Does Not Do
+## What Raft Does Not Do
 
-See [Known Limitations](docs/limitations.md) for a detailed and honest list. Key exclusions:
+These are explicit architectural boundaries, not missing features. See [docs/limitations.md](docs/limitations.md) for detailed rationale and future work estimates.
+
 - No multi-region replication (single Raft group)
-- No automatic sharding (all data on every node)
-- No encryption at rest or authentication
+- No automatic horizontal sharding (single Raft group)
+- No follower reads with tunable staleness
+- No encryption at rest
+- No authentication / ACL system
 - No SQL query layer
+- No Windows support
+
+## Build
+
+Requires Rust 1.75+ and `protoc` (protobuf compiler).
+
+```bash
+cargo build                # Build all crates
+cargo test                 # Run all 230+ tests
+cargo test -p raft-consensus  # Run consensus tests only
+cargo test -p raft-chaos      # Run chaos framework tests
+cargo bench -p raft-storage   # Run storage benchmarks
+cargo clippy               # Lint
+cargo fmt -- --check       # Check formatting
+```
 
 ## Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────┐
 │                      Client                             │
 │  KvClient (retry + leader tracking + backoff)           │
@@ -73,64 +94,51 @@ See [Known Limitations](docs/limitations.md) for a detailed and honest list. Key
 └─────────────────────────────────────────────────────────┘
 ```
 
-## Crate Structure
+## Project Structure
 
-| Crate | Purpose |
-|-------|---------|
-| `raft-common` | Shared types, config, error handling, Prometheus metrics |
-| `raft-storage` | LSM-tree engine: WAL, MemTable, SSTable, compaction, bloom filters |
-| `raft-mvcc` | MVCC layer: versioned keys, snapshot reads, OCC transactions, TTL |
-| `raft-consensus` | Raft algorithm: election, replication, snapshots, read index, leadership transfer, joint consensus |
-| `raft-server` | Full server: KV/Watch/Lease/Admin gRPC services, apply loop, HTTP endpoints |
-| `raft-client` | Client library: retry with exponential backoff, leader tracking |
-| `raft-admin` | Admin CLI tool |
-| `raft-chaos` | Chaos testing: network partitions, disk failures, clock skew, cluster harness |
-
-## Running Tests
-
-```bash
-# Run all 230+ tests
-cargo test
-
-# Run specific crate tests
-cargo test -p raft-consensus
-cargo test -p raft-chaos
-
-# Run benchmarks
-cargo bench -p raft-storage
+```text
+raft/
+├── crates/
+│   ├── raft-common/       Shared types, config, error handling, Prometheus metrics
+│   ├── raft-storage/      LSM-tree: WAL, MemTable, SSTable, compaction, bloom filters
+│   ├── raft-mvcc/         MVCC: versioned keys, snapshot reads, OCC transactions, TTL
+│   ├── raft-consensus/    Raft: election, replication, snapshots, read index, transfer, joint consensus
+│   ├── raft-server/       Full server: KV/Watch/Lease/Admin gRPC, apply loop, HTTP endpoints
+│   ├── raft-client/       Client library: retry with exponential backoff, leader tracking
+│   ├── raft-admin/        Admin CLI tool
+│   └── raft-chaos/        Chaos testing: network partitions, disk failures, clock skew
+├── proto/                 Protobuf definitions (raft, kv, watch, lease, admin, membership)
+├── benches/               Criterion storage benchmarks
+├── docs/
+│   ├── decisions/         Architecture Decision Records (ADRs)
+│   ├── internals/         Deep-dive: Raft consensus, storage engine
+│   └── limitations.md     Known limitations + future work
+└── .github/workflows/     CI: test + lint + bench on every push
 ```
 
-## Test Coverage
+## Testing
 
 | Category | Count | What It Proves |
-|----------|-------|----------------|
+| --- | --- | --- |
 | Storage engine | 48 | WAL crash recovery, compaction, bloom filters, key encoding |
 | MVCC + transactions | 24 | Snapshot isolation, OCC conflict detection, TTL, range scans |
 | Raft consensus | 73 | Elections, replication, snapshots, read index, transfer, joint consensus |
 | Server integration | 37 | Apply loop, watch events, lease expiry, backup format, HTTP endpoints, metrics |
 | Chaos framework | 34 | Network partitions, disk failures, clock skew, cluster orchestration |
-| Client | 2 | Leader hint parsing |
 | Cluster integration | 8 | Multi-node election, replication, failover, snapshot install |
-| Common | 4 | Metrics creation and encoding |
+| Common + client | 6 | Metrics encoding, leader hint parsing |
 
 ## Documentation
 
-- **[Architecture Decisions](docs/decisions/)** — Why Raft over Paxos, LSM over B-tree, joint consensus, OCC, gRPC
-- **[Raft Internals](docs/internals/raft-consensus.md)** — Deep-dive into the consensus implementation
-- **[Storage Internals](docs/internals/storage-engine.md)** — LSM-tree, WAL, MVCC, compaction
-- **[Known Limitations](docs/limitations.md)** — Honest scope boundaries and future work
-
-## Tech Stack
-
-| Component | Choice | Reason |
-|-----------|--------|--------|
-| Language | Rust | Ownership model enforces correctness, zero-cost abstractions |
-| Async runtime | Tokio | Industry standard for async Rust |
-| gRPC | tonic + prost | Streaming support, type-safe protobuf, HTTP/2 |
-| Storage | Custom LSM-tree | Full control, educational value, WAL integration |
-| Metrics | Prometheus | Industry standard, scrape-based, Grafana-compatible |
-| Serialization | serde + protobuf | JSON for internal state, protobuf for wire protocol |
+- [ADR-001: Raft over Paxos](docs/decisions/001-raft-over-paxos.md) — understandability, industry validation, testability
+- [ADR-002: LSM-tree over B-tree](docs/decisions/002-lsm-tree-over-btree.md) — write-optimized, MVCC fit
+- [ADR-003: Joint Consensus](docs/decisions/003-joint-consensus-membership.md) — two-phase safety guarantee
+- [ADR-004: OCC Transactions](docs/decisions/004-occ-transactions.md) — Raft integration, no deadlocks
+- [ADR-005: gRPC + Protobuf](docs/decisions/005-grpc-for-rpcs.md) — streaming, type safety
+- [Raft Internals](docs/internals/raft-consensus.md) — deep-dive into the consensus implementation
+- [Storage Internals](docs/internals/storage-engine.md) — LSM-tree, WAL, MVCC, compaction
+- [Known Limitations](docs/limitations.md) — honest scope boundaries and future work
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).
