@@ -1,1 +1,1 @@
-// Graceful leadership transfer to a specific node.
+// Graceful leadership transfer — Phase 6.

@@ -1,2 +1,781 @@
-/// The main Raft node. Drives elections, replication, and applies committed entries.
-pub struct RaftNode;
+use parking_lot::Mutex;
+use raft_common::types::{LogIndex, NodeId, Term};
+use std::collections::HashMap;
+use std::path::Path;
+use tracing::{debug, info};
+
+use crate::election::should_grant_vote;
+use crate::log::RaftLog;
+use crate::message::*;
+use crate::state::*;
+use crate::tick::TickConfig;
+
+/// Configuration for a Raft node.
+#[derive(Debug, Clone)]
+pub struct NodeConfig {
+    pub id: NodeId,
+    pub peers: Vec<NodeId>,
+    pub data_dir: String,
+    pub tick_config: TickConfig,
+}
+
+/// The core Raft node. Thread-safe via internal locking.
+///
+/// This implements the Raft algorithm as described in the paper:
+/// - Leader election with pre-vote
+/// - Log replication with consistency checks
+/// - Commit index advancement via quorum
+pub struct RaftNode {
+    inner: Mutex<RaftNodeInner>,
+    config: NodeConfig,
+}
+
+struct RaftNodeInner {
+    state: RaftState,
+    log: RaftLog,
+    leader_state: Option<LeaderState>,
+    election_state: Option<ElectionState>,
+    /// Pending proposals waiting for commit.
+    pending_proposals: HashMap<LogIndex, tokio::sync::oneshot::Sender<ProposalResult>>,
+}
+
+impl RaftNode {
+    /// Create a new Raft node.
+    pub fn new(config: NodeConfig) -> raft_common::error::Result<Self> {
+        let data_dir = Path::new(&config.data_dir);
+        std::fs::create_dir_all(data_dir)?;
+
+        let persistent_path = data_dir.join("raft_state.json");
+        let persistent = PersistentState::load(&persistent_path);
+
+        let wal_path = data_dir.join("raft_log.wal");
+        let log = RaftLog::open(&wal_path)?;
+
+        let state = RaftState {
+            id: config.id,
+            role: Role::Follower,
+            persistent,
+            leader_id: None,
+            commit_index: 0,
+            last_applied: 0,
+        };
+
+        Ok(Self {
+            inner: Mutex::new(RaftNodeInner {
+                state,
+                log,
+                leader_state: None,
+                election_state: None,
+                pending_proposals: HashMap::new(),
+            }),
+            config,
+        })
+    }
+
+    /// Get the current role.
+    pub fn role(&self) -> Role {
+        self.inner.lock().state.role
+    }
+
+    /// Get the current term.
+    pub fn term(&self) -> Term {
+        self.inner.lock().state.persistent.current_term
+    }
+
+    /// Get the current leader ID.
+    pub fn leader_id(&self) -> Option<NodeId> {
+        self.inner.lock().state.leader_id
+    }
+
+    /// Get the commit index.
+    pub fn commit_index(&self) -> LogIndex {
+        self.inner.lock().state.commit_index
+    }
+
+    /// Get this node's ID.
+    pub fn id(&self) -> NodeId {
+        self.config.id
+    }
+
+    /// Cluster size (including self).
+    pub fn cluster_size(&self) -> usize {
+        self.config.peers.len() + 1
+    }
+
+    /// Get peer IDs.
+    pub fn peers(&self) -> &[NodeId] {
+        &self.config.peers
+    }
+
+    // ── Election ──
+
+    /// Start a pre-vote phase. Called when election timeout fires.
+    /// Returns vote requests to send to all peers.
+    pub fn start_pre_vote(&self) -> Vec<(NodeId, VoteRequest)> {
+        let mut inner = self.inner.lock();
+        inner.state.role = Role::PreCandidate;
+
+        let mut election = ElectionState::new(self.cluster_size());
+        election.record_vote(self.config.id); // vote for self
+
+        let request = VoteRequest {
+            term: inner.state.persistent.current_term + 1, // hypothetical next term
+            candidate_id: self.config.id,
+            last_log_index: inner.log.last_index(),
+            last_log_term: inner.log.last_term(),
+            is_pre_vote: true,
+        };
+
+        inner.election_state = Some(election);
+
+        self.config
+            .peers
+            .iter()
+            .map(|&peer| (peer, request.clone()))
+            .collect()
+    }
+
+    /// Start a real election. Called after pre-vote succeeds.
+    /// Returns vote requests to send to all peers.
+    pub fn start_election(&self) -> Vec<(NodeId, VoteRequest)> {
+        let mut inner = self.inner.lock();
+
+        // Increment term
+        inner.state.persistent.current_term += 1;
+        inner.state.persistent.voted_for = Some(self.config.id);
+        inner.state.role = Role::Candidate;
+        inner.state.leader_id = None;
+
+        self.save_persistent(&inner.state.persistent);
+
+        let mut election = ElectionState::new(self.cluster_size());
+        election.record_vote(self.config.id);
+
+        let request = VoteRequest {
+            term: inner.state.persistent.current_term,
+            candidate_id: self.config.id,
+            last_log_index: inner.log.last_index(),
+            last_log_term: inner.log.last_term(),
+            is_pre_vote: false,
+        };
+
+        inner.election_state = Some(election);
+
+        info!(
+            node = self.config.id,
+            term = inner.state.persistent.current_term,
+            "Starting election"
+        );
+
+        self.config
+            .peers
+            .iter()
+            .map(|&peer| (peer, request.clone()))
+            .collect()
+    }
+
+    /// Handle a vote response from a peer. Returns true if we became leader.
+    pub fn handle_vote_response(
+        &self,
+        from: NodeId,
+        response: VoteResponse,
+        was_pre_vote: bool,
+    ) -> bool {
+        let mut inner = self.inner.lock();
+
+        // Step down if we see a higher term
+        if response.term > inner.state.persistent.current_term {
+            self.step_down_inner(&mut inner, response.term);
+            return false;
+        }
+
+        if !response.vote_granted {
+            return false;
+        }
+
+        if let Some(ref mut election) = inner.election_state {
+            let has_quorum = election.record_vote(from);
+
+            if has_quorum {
+                if was_pre_vote {
+                    // Pre-vote succeeded — start real election
+                    // (caller should call start_election)
+                    debug!(
+                        node = self.config.id,
+                        "Pre-vote succeeded, starting real election"
+                    );
+                    return false; // signal to start real election handled by caller
+                }
+
+                // Won the real election — become leader
+                self.become_leader_inner(&mut inner);
+                return true;
+            }
+        }
+
+        false
+    }
+
+    /// Check if pre-vote has quorum (caller uses this to decide whether to start real election).
+    pub fn pre_vote_has_quorum(&self) -> bool {
+        let inner = self.inner.lock();
+        inner
+            .election_state
+            .as_ref()
+            .map_or(false, |e| e.has_quorum())
+    }
+
+    // ── Vote handling ──
+
+    /// Handle an incoming vote request. Returns the response.
+    pub fn handle_vote_request(&self, request: VoteRequest) -> VoteResponse {
+        let mut inner = self.inner.lock();
+
+        // If this is a pre-vote, don't modify our state
+        if request.is_pre_vote {
+            let would_grant = request.term > inner.state.persistent.current_term
+                && crate::election::is_log_up_to_date(
+                    request.last_log_term,
+                    request.last_log_index,
+                    inner.log.last_term(),
+                    inner.log.last_index(),
+                );
+            return VoteResponse {
+                term: inner.state.persistent.current_term,
+                vote_granted: would_grant,
+            };
+        }
+
+        // Step down if we see a higher term
+        if request.term > inner.state.persistent.current_term {
+            self.step_down_inner(&mut inner, request.term);
+        }
+
+        let grant = should_grant_vote(
+            &inner.state,
+            &request,
+            inner.log.last_index(),
+            inner.log.last_term(),
+        );
+
+        if grant {
+            inner.state.persistent.voted_for = Some(request.candidate_id);
+            self.save_persistent(&inner.state.persistent);
+            debug!(
+                node = self.config.id,
+                candidate = request.candidate_id,
+                term = request.term,
+                "Granted vote"
+            );
+        }
+
+        VoteResponse {
+            term: inner.state.persistent.current_term,
+            vote_granted: grant,
+        }
+    }
+
+    // ── AppendEntries ──
+
+    /// Handle an AppendEntries request from the leader.
+    pub fn handle_append_entries(&self, request: AppendRequest) -> AppendResponse {
+        let mut inner = self.inner.lock();
+
+        // Reject if term < currentTerm
+        if request.term < inner.state.persistent.current_term {
+            return AppendResponse {
+                term: inner.state.persistent.current_term,
+                success: false,
+                match_index: 0,
+            };
+        }
+
+        // Step down if we see a higher or equal term from a leader
+        if request.term >= inner.state.persistent.current_term {
+            if request.term > inner.state.persistent.current_term {
+                self.step_down_inner(&mut inner, request.term);
+            }
+            inner.state.role = Role::Follower;
+            inner.state.leader_id = Some(request.leader_id);
+        }
+
+        // Log consistency check
+        if request.prev_log_index > 0
+            && !inner
+                .log
+                .match_term(request.prev_log_index, request.prev_log_term)
+        {
+            return AppendResponse {
+                term: inner.state.persistent.current_term,
+                success: false,
+                match_index: inner.log.last_index(),
+            };
+        }
+
+        // Append new entries (handle conflicts)
+        if !request.entries.is_empty() {
+            // Find point of conflict
+            let mut new_entries = Vec::new();
+            for entry in request.entries {
+                if let Some(existing) = inner.log.get(entry.index) {
+                    if existing.term != entry.term {
+                        // Conflict — truncate from here
+                        inner.log.truncate_after(entry.index - 1);
+                        new_entries.push(entry);
+                    }
+                    // If terms match, entry already present — skip
+                } else {
+                    new_entries.push(entry);
+                }
+            }
+
+            if !new_entries.is_empty() {
+                let _ = inner.log.append(new_entries);
+            }
+        }
+
+        // Update commit index
+        if request.leader_commit > inner.state.commit_index {
+            inner.state.commit_index =
+                std::cmp::min(request.leader_commit, inner.log.last_index());
+        }
+
+        AppendResponse {
+            term: inner.state.persistent.current_term,
+            success: true,
+            match_index: inner.log.last_index(),
+        }
+    }
+
+    // ── Leader operations ──
+
+    /// Propose a new entry (client write). Only valid on the leader.
+    pub fn propose(&self, data: Vec<u8>) -> Result<LogIndex, ProposalResult> {
+        let mut inner = self.inner.lock();
+
+        if inner.state.role != Role::Leader {
+            return Err(ProposalResult::NotLeader {
+                leader_id: inner.state.leader_id,
+            });
+        }
+
+        let index = inner.log.last_index() + 1;
+        let entry = LogEntry {
+            index,
+            term: inner.state.persistent.current_term,
+            data,
+            entry_type: EntryType::Normal,
+        };
+
+        inner
+            .log
+            .append(vec![entry])
+            .map_err(|e| ProposalResult::Error(e.to_string()))?;
+
+        // Update own match_index
+        let last_idx = inner.log.last_index();
+        if let Some(ref mut leader) = inner.leader_state {
+            leader.match_index.insert(self.config.id, last_idx);
+        }
+
+        Ok(index)
+    }
+
+    /// Generate AppendEntries requests for all peers (heartbeat or replication).
+    pub fn create_append_requests(&self) -> Vec<(NodeId, AppendRequest)> {
+        let inner = self.inner.lock();
+
+        if inner.state.role != Role::Leader {
+            return vec![];
+        }
+
+        let leader = match &inner.leader_state {
+            Some(l) => l,
+            None => return vec![],
+        };
+
+        let mut requests = Vec::new();
+        for &peer in &self.config.peers {
+            let next_idx = leader.next_index.get(&peer).copied().unwrap_or(1);
+            let prev_log_index = next_idx.saturating_sub(1);
+            let prev_log_term = inner.log.term_at(prev_log_index).unwrap_or(0);
+
+            let entries: Vec<LogEntry> = inner
+                .log
+                .entries_from(next_idx)
+                .iter()
+                .cloned()
+                .collect();
+
+            requests.push((
+                peer,
+                AppendRequest {
+                    term: inner.state.persistent.current_term,
+                    leader_id: self.config.id,
+                    prev_log_index,
+                    prev_log_term,
+                    entries,
+                    leader_commit: inner.state.commit_index,
+                },
+            ));
+        }
+
+        requests
+    }
+
+    /// Handle an AppendEntries response from a peer.
+    pub fn handle_append_response(&self, from: NodeId, response: AppendResponse) {
+        let mut inner = self.inner.lock();
+
+        if response.term > inner.state.persistent.current_term {
+            self.step_down_inner(&mut inner, response.term);
+            return;
+        }
+
+        if inner.state.role != Role::Leader {
+            return;
+        }
+
+        let leader = match inner.leader_state.as_mut() {
+            Some(l) => l,
+            None => return,
+        };
+
+        if response.success {
+            leader.match_index.insert(from, response.match_index);
+            leader
+                .next_index
+                .insert(from, response.match_index + 1);
+        } else {
+            // Decrement nextIndex and retry
+            let next = leader.next_index.entry(from).or_insert(1);
+            *next = next.saturating_sub(1).max(1);
+        }
+
+        // Try to advance commit index
+        self.try_advance_commit(&mut inner);
+    }
+
+    /// Get entries that have been committed but not yet applied.
+    pub fn take_committed_entries(&self) -> Vec<LogEntry> {
+        let mut inner = self.inner.lock();
+        let mut entries = Vec::new();
+
+        while inner.state.last_applied < inner.state.commit_index {
+            inner.state.last_applied += 1;
+            if let Some(entry) = inner.log.get(inner.state.last_applied) {
+                entries.push(entry.clone());
+            }
+        }
+
+        entries
+    }
+
+    // ── Internal helpers ──
+
+    fn become_leader_inner(&self, inner: &mut RaftNodeInner) {
+        info!(
+            node = self.config.id,
+            term = inner.state.persistent.current_term,
+            "Became leader"
+        );
+
+        inner.state.role = Role::Leader;
+        inner.state.leader_id = Some(self.config.id);
+        inner.election_state = None;
+
+        // Initialize leader state
+        inner.leader_state = Some(LeaderState::new(
+            &self.config.peers,
+            inner.log.last_index(),
+        ));
+
+        // Append a no-op entry to commit entries from previous terms
+        let noop = LogEntry {
+            index: inner.log.last_index() + 1,
+            term: inner.state.persistent.current_term,
+            data: vec![],
+            entry_type: EntryType::Noop,
+        };
+        let _ = inner.log.append(vec![noop]);
+
+        // Update own match_index
+        let last_idx = inner.log.last_index();
+        if let Some(ref mut leader) = inner.leader_state {
+            leader.match_index.insert(self.config.id, last_idx);
+        }
+    }
+
+    fn step_down_inner(&self, inner: &mut RaftNodeInner, new_term: Term) {
+        debug!(
+            node = self.config.id,
+            old_term = inner.state.persistent.current_term,
+            new_term,
+            "Stepping down"
+        );
+        inner.state.persistent.current_term = new_term;
+        inner.state.persistent.voted_for = None;
+        inner.state.role = Role::Follower;
+        inner.state.leader_id = None;
+        inner.leader_state = None;
+        inner.election_state = None;
+        self.save_persistent(&inner.state.persistent);
+    }
+
+    fn try_advance_commit(&self, inner: &mut RaftNodeInner) {
+        let leader = match inner.leader_state.as_ref() {
+            Some(l) => l,
+            None => return,
+        };
+
+        // Find the highest index replicated on a majority
+        let mut match_indices: Vec<LogIndex> = leader.match_index.values().copied().collect();
+        match_indices.sort_unstable();
+
+        let quorum_idx = match_indices.len() / 2; // majority position
+        let new_commit = match_indices[quorum_idx];
+
+        // Only commit entries from our current term (§5.4.2)
+        if new_commit > inner.state.commit_index {
+            if let Some(entry) = inner.log.get(new_commit) {
+                if entry.term == inner.state.persistent.current_term {
+                    inner.state.commit_index = new_commit;
+                }
+            }
+        }
+    }
+
+    fn save_persistent(&self, persistent: &PersistentState) {
+        let path =
+            Path::new(&self.config.data_dir).join("raft_state.json");
+        persistent.save(&path);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_node(id: NodeId, peers: Vec<NodeId>, dir: &Path) -> RaftNode {
+        let data_dir = dir.join(format!("node-{}", id));
+        RaftNode::new(NodeConfig {
+            id,
+            peers,
+            data_dir: data_dir.to_string_lossy().to_string(),
+            tick_config: TickConfig::default(),
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn initial_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let node = make_node(1, vec![2, 3], dir.path());
+
+        assert_eq!(node.role(), Role::Follower);
+        assert_eq!(node.term(), 0);
+        assert_eq!(node.leader_id(), None);
+        assert_eq!(node.cluster_size(), 3);
+    }
+
+    #[test]
+    fn single_node_election() {
+        let dir = tempfile::tempdir().unwrap();
+        let node = make_node(1, vec![], dir.path());
+
+        // Single node: pre-vote gets self-vote, has quorum immediately
+        let requests = node.start_pre_vote();
+        assert!(requests.is_empty()); // no peers
+        assert!(node.pre_vote_has_quorum());
+
+        // Start real election
+        let requests = node.start_election();
+        assert!(requests.is_empty());
+
+        // Single node wins immediately since it already has its own vote
+        // In start_election, we record our own vote. For a single node,
+        // that's already quorum, but we need to explicitly become leader.
+        // The election_state has quorum, so handle_vote_response isn't needed.
+        // Let's check: the election state should have quorum.
+        assert_eq!(node.role(), Role::Candidate);
+        // For single node, manually trigger leader transition:
+        // In practice, the event loop checks quorum after self-vote.
+        {
+            let mut inner = node.inner.lock();
+            if inner
+                .election_state
+                .as_ref()
+                .map_or(false, |e| e.has_quorum())
+            {
+                node.become_leader_inner(&mut inner);
+            }
+        }
+        assert_eq!(node.role(), Role::Leader);
+        assert_eq!(node.leader_id(), Some(1));
+    }
+
+    #[test]
+    fn three_node_election() {
+        let dir = tempfile::tempdir().unwrap();
+        let node1 = make_node(1, vec![2, 3], dir.path());
+        let node2 = make_node(2, vec![1, 3], dir.path());
+        let node3 = make_node(3, vec![1, 2], dir.path());
+
+        // Node 1 starts pre-vote
+        let pre_vote_requests = node1.start_pre_vote();
+        assert_eq!(pre_vote_requests.len(), 2);
+
+        // Nodes 2 and 3 respond to pre-vote
+        let resp2 = node2.handle_vote_request(pre_vote_requests[0].1.clone());
+        let resp3 = node3.handle_vote_request(pre_vote_requests[1].1.clone());
+        assert!(resp2.vote_granted);
+        assert!(resp3.vote_granted);
+
+        // Handle pre-vote responses
+        node1.handle_vote_response(2, resp2, true);
+        assert!(node1.pre_vote_has_quorum());
+
+        // Now start real election
+        let vote_requests = node1.start_election();
+        assert_eq!(vote_requests.len(), 2);
+        assert_eq!(node1.term(), 1);
+
+        // Node 2 grants vote
+        let resp2 = node2.handle_vote_request(vote_requests[0].1.clone());
+        assert!(resp2.vote_granted);
+
+        // Handle response — should become leader with 2/3 quorum
+        let became_leader = node1.handle_vote_response(2, resp2, false);
+        assert!(became_leader);
+        assert_eq!(node1.role(), Role::Leader);
+        assert_eq!(node1.term(), 1);
+    }
+
+    #[test]
+    fn reject_vote_stale_term() {
+        let dir = tempfile::tempdir().unwrap();
+        let node = make_node(1, vec![2], dir.path());
+
+        // Force node1 to term 5
+        {
+            let mut inner = node.inner.lock();
+            inner.state.persistent.current_term = 5;
+        }
+
+        let req = VoteRequest {
+            term: 3, // stale
+            candidate_id: 2,
+            last_log_index: 0,
+            last_log_term: 0,
+            is_pre_vote: false,
+        };
+        let resp = node.handle_vote_request(req);
+        assert!(!resp.vote_granted);
+        assert_eq!(resp.term, 5);
+    }
+
+    #[test]
+    fn step_down_on_higher_term() {
+        let dir = tempfile::tempdir().unwrap();
+        let node = make_node(1, vec![2, 3], dir.path());
+
+        // Become leader at term 1
+        node.start_election();
+        {
+            let mut inner = node.inner.lock();
+            node.become_leader_inner(&mut inner);
+        }
+        assert_eq!(node.role(), Role::Leader);
+
+        // Receive AppendEntries from higher term
+        let req = AppendRequest {
+            term: 5,
+            leader_id: 2,
+            prev_log_index: 0,
+            prev_log_term: 0,
+            entries: vec![],
+            leader_commit: 0,
+        };
+        node.handle_append_entries(req);
+
+        assert_eq!(node.role(), Role::Follower);
+        assert_eq!(node.term(), 5);
+        assert_eq!(node.leader_id(), Some(2));
+    }
+
+    #[test]
+    fn log_replication() {
+        let dir = tempfile::tempdir().unwrap();
+        let leader = make_node(1, vec![2, 3], dir.path());
+        let follower = make_node(2, vec![1, 3], dir.path());
+
+        // Make node 1 leader
+        leader.start_election();
+        {
+            let mut inner = leader.inner.lock();
+            node_become_leader(&leader, &mut inner);
+        }
+
+        // Propose an entry
+        let index = leader.propose(b"hello".to_vec()).unwrap();
+        assert!(index > 0);
+
+        // Generate append requests
+        let requests = leader.create_append_requests();
+        assert_eq!(requests.len(), 2);
+
+        // Follower handles append
+        let (_, req) = requests
+            .into_iter()
+            .find(|(id, _)| *id == 2)
+            .unwrap();
+        let resp = follower.handle_append_entries(req);
+        assert!(resp.success);
+
+        // Leader handles response
+        leader.handle_append_response(2, resp);
+
+        // With 2/3 replicas (leader + follower2), commit should advance
+        assert!(leader.commit_index() > 0);
+    }
+
+    fn node_become_leader(node: &RaftNode, inner: &mut RaftNodeInner) {
+        node.become_leader_inner(inner);
+    }
+
+    #[test]
+    fn append_entries_consistency_check() {
+        let dir = tempfile::tempdir().unwrap();
+        let follower = make_node(1, vec![2], dir.path());
+
+        // Follower has no entries — request with prev_log_index=5 should fail
+        let req = AppendRequest {
+            term: 1,
+            leader_id: 2,
+            prev_log_index: 5,
+            prev_log_term: 1,
+            entries: vec![],
+            leader_commit: 0,
+        };
+        let resp = follower.handle_append_entries(req);
+        assert!(!resp.success);
+
+        // Request with prev_log_index=0 should succeed (empty log matches sentinel)
+        let req = AppendRequest {
+            term: 1,
+            leader_id: 2,
+            prev_log_index: 0,
+            prev_log_term: 0,
+            entries: vec![LogEntry {
+                index: 1,
+                term: 1,
+                data: b"first".to_vec(),
+                entry_type: EntryType::Normal,
+            }],
+            leader_commit: 0,
+        };
+        let resp = follower.handle_append_entries(req);
+        assert!(resp.success);
+        assert_eq!(resp.match_index, 1);
+    }
+}

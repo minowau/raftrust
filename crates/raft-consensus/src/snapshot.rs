@@ -1,2 +1,2 @@
-/// Snapshot creation, transfer, and restoration for log compaction.
-pub struct SnapshotManager;
+// Snapshot management — Phase 5.
+// SnapshotManager: create/restore/stream snapshots with checksum.
