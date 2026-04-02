@@ -59,13 +59,13 @@ cargo fmt -- --check       # Check formatting
 └──────────────────────┬──────────────────────────────────┘
                        │ gRPC
 ┌──────────────────────▼──────────────────────────────────┐
-│                    RaftServer                            │
-│  ┌──────────┐ ┌──────────┐ ┌───────┐ ┌──────────────┐  │
-│  │KV Service│ │Watch Svc │ │Lease  │ │ Admin Service │  │
-│  │get/put/  │ │streaming │ │grant/ │ │ add/remove   │  │
-│  │delete/   │ │key change│ │revoke/│ │ transfer/    │  │
-│  │range     │ │events    │ │keepalv│ │ backup/drain │  │
-│  └────┬─────┘ └────┬─────┘ └───┬───┘ └──────┬───────┘  │
+│                    RaftServer                           |                  
+│  ┌──────────┐ ┌──────────┐ ┌───────┐ ┌──────────────┐   │
+│  │KV Service│ │Watch Svc │ │Lease  │ │ Admin Service│   │
+│  │get/put/  │ │streaming │ │grant/ │ │ add/remove   │   │
+│  │delete/   │ │key change│ │revoke/│ │ transfer/    │   │
+│  │range     │ │events    │ │keepalv│ │ backup/drain │   │
+│  └────┬─────┘ └────┬─────┘ └───┬───┘ └──────┬───────┘   │
 │       │            │           │             │          │
 │  ┌────▼────────────▼───────────▼─────────────▼───────┐  │
 │  │                  Apply Loop                       │  │
@@ -86,7 +86,7 @@ cargo fmt -- --check       # Check formatting
 │                         │                               │
 │  ┌──────────────────────▼────────────────────────────┐  │
 │  │              LSM-Tree Storage                     │  │
-│  │  WAL · MemTable · SSTables · Bloom Filters ·     │  │
+│  │  WAL · MemTable · SSTables · Bloom Filters ·      │  │
 │  │  Leveled Compaction                               │  │
 │  └───────────────────────────────────────────────────┘  │
 │                                                         │
