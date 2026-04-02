@@ -1,0 +1,27 @@
+syntax = "proto3";
+package membership;
+
+message ClusterConfig {
+  repeated Member members = 1;
+}
+
+message Member {
+  uint64 id = 1;
+  string address = 2;
+}
+
+message JointConfig {
+  ClusterConfig old_config = 1;
+  ClusterConfig new_config = 2;
+}
+
+message ConfigChangeEntry {
+  ConfigChangeType change_type = 1;
+  uint64 node_id = 2;
+  string address = 3;
+}
+
+enum ConfigChangeType {
+  ADD_NODE = 0;
+  REMOVE_NODE = 1;
+}
