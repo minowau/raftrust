@@ -1045,7 +1045,7 @@ checksum = "dc33ff2d4973d518d823d61aa239014831e521c75da58e3df4840d3f47749d09"
 
 [[package]]
 name = "raft-admin"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "prost",
@@ -1060,7 +1060,7 @@ dependencies = [
 
 [[package]]
 name = "raft-chaos"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "parking_lot",
  "raft-client",
@@ -1076,7 +1076,7 @@ dependencies = [
 
 [[package]]
 name = "raft-client"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "prost",
  "raft-common",
@@ -1090,7 +1090,7 @@ dependencies = [
 
 [[package]]
 name = "raft-common"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "prometheus",
  "serde",
@@ -1101,7 +1101,7 @@ dependencies = [
 
 [[package]]
 name = "raft-consensus-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bytes",
  "crc32fast",
@@ -1123,7 +1123,7 @@ dependencies = [
 
 [[package]]
 name = "raft-mvcc"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bytes",
  "criterion",
@@ -1139,7 +1139,7 @@ dependencies = [
 
 [[package]]
 name = "raft-server"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "bytes",
@@ -1167,7 +1167,7 @@ dependencies = [
 
 [[package]]
 name = "raft-storage"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bitvec",
  "bytes",
