@@ -18,5 +18,11 @@ parking_lot = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
+criterion = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 tempfile = { workspace = true }
+
+[[bench]]
+name = "storage_bench"
+harness = false
+path = "../../benches/storage_bench.rs"

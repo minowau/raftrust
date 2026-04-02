@@ -1126,6 +1126,7 @@ name = "raft-mvcc"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "criterion",
  "parking_lot",
  "proptest",
  "raft-common",
@@ -1171,12 +1172,10 @@ dependencies = [
  "bitvec",
  "bytes",
  "crc32fast",
- "criterion",
  "crossbeam-channel",
  "parking_lot",
  "proptest",
  "raft-common",
- "raft-mvcc",
  "serde",
  "serde_json",
  "tempfile",
