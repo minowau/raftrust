@@ -1,8 +1,9 @@
 # Raft
 
-[![CI](https://github.com/louisphilipmarcoux/raft/actions/workflows/ci.yml/badge.svg)](https://github.com/louisphilipmarcoux/raft/actions/workflows/ci.yml)
+[![CI](https://img.shields.io/github/actions/workflow/status/louisphilipmarcoux/raft/ci.yml?branch=main&label=CI)](https://github.com/louisphilipmarcoux/raft/actions/workflows/ci.yml)
+[![crates.io](https://img.shields.io/crates/v/raft-consensus-core.svg)](https://crates.io/crates/raft-consensus-core)
 [![Rust](https://img.shields.io/badge/Rust-1.75+-DEA584?logo=rust&logoColor=white)](https://www.rust-lang.org)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Tests](https://img.shields.io/badge/Tests-230+-brightgreen)](https://github.com/louisphilipmarcoux/raft/actions)
 
 A production-grade distributed key-value store written in Rust, implementing the Raft consensus algorithm for fault-tolerant replication.
