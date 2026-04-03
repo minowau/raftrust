@@ -12,7 +12,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 authors = ["Louis-Philip Marcoux"]
 license = "MIT"
@@ -68,11 +68,11 @@ proptest = "1"
 criterion = { version = "0.5", features = ["html_reports"] }
 
 # Internal crates
-raft-common = { version = "0.1.1", path = "crates/raft-common" }
-raft-storage = { version = "0.1.1", path = "crates/raft-storage" }
-raft-mvcc = { version = "0.1.1", path = "crates/raft-mvcc" }
-raft-consensus-core = { version = "0.1.1", path = "crates/raft-consensus" }
-raft-server = { version = "0.1.1", path = "crates/raft-server" }
-raft-client = { version = "0.1.1", path = "crates/raft-client" }
-raft-admin = { version = "0.1.1", path = "crates/raft-admin" }
-raft-chaos = { version = "0.1.1", path = "crates/raft-chaos" }
+raft-common = { version = "0.1.2", path = "crates/raft-common" }
+raft-storage = { version = "0.1.2", path = "crates/raft-storage" }
+raft-mvcc = { version = "0.1.2", path = "crates/raft-mvcc" }
+raft-consensus-core = { version = "0.1.2", path = "crates/raft-consensus" }
+raft-server = { version = "0.1.2", path = "crates/raft-server" }
+raft-client = { version = "0.1.2", path = "crates/raft-client" }
+raft-admin = { version = "0.1.2", path = "crates/raft-admin" }
+raft-chaos = { version = "0.1.2", path = "crates/raft-chaos" }
