@@ -8,7 +8,7 @@
 
 A production-grade distributed key-value store written in Rust, implementing the Raft consensus algorithm for fault-tolerant replication.
 
-Raft implements leader election with pre-vote, log replication, snapshots, linearizable reads, leadership transfer, joint consensus membership changes, MVCC with OCC transactions, and a custom LSM-tree storage engine — the same architecture used by [etcd](https://etcd.io), the distributed KV store that Kubernetes uses for all cluster state.
+Raft implements leader election with pre-vote algorithm, log replication, snapshots, linearizable reads, leadership transfer, joint consensus membership changes, MVCC with OCC transactions, and a custom LSM-tree storage engine — the same architecture used by [etcd](https://etcd.io), the distributed KV store that Kubernetes uses for all cluster state.
 
 ## What Raft Does
 
