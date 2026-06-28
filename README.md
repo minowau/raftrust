@@ -1,10 +1,5 @@
-# Raft
+# Raftrust
 
-[![CI](https://img.shields.io/github/actions/workflow/status/louisphilipmarcoux/raft/ci.yml?branch=main&label=CI)](https://github.com/louisphilipmarcoux/raft/actions/workflows/ci.yml)
-[![crates.io](https://img.shields.io/crates/v/raft-consensus-core.svg)](https://crates.io/crates/raft-consensus-core)
-[![Rust](https://img.shields.io/badge/Rust-1.75+-DEA584?logo=rust&logoColor=white)](https://www.rust-lang.org)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/Tests-230+-brightgreen)](https://github.com/louisphilipmarcoux/raft/actions)
 
 A production-grade distributed key-value store written in Rust, implementing the Raft consensus algorithm for fault-tolerant replication.
 
@@ -110,10 +105,6 @@ raft/
 │   └── raft-chaos/        Chaos testing: network partitions, disk failures, clock skew
 ├── proto/                 Protobuf definitions (raft, kv, watch, lease, admin, membership)
 ├── benches/               Criterion storage benchmarks
-├── docs/
-│   ├── decisions/         Architecture Decision Records (ADRs)
-│   ├── internals/         Deep-dive: Raft consensus, storage engine
-│   └── limitations.md     Known limitations + future work
 └── .github/workflows/     CI: test + lint + bench on every push
 ```
 
@@ -129,16 +120,6 @@ raft/
 | Cluster integration | 8 | Multi-node election, replication, failover, snapshot install |
 | Common + client | 6 | Metrics encoding, leader hint parsing |
 
-## Documentation
-
-- [ADR-001: Raft over Paxos](docs/decisions/001-raft-over-paxos.md) — understandability, industry validation, testability
-- [ADR-002: LSM-tree over B-tree](docs/decisions/002-lsm-tree-over-btree.md) — write-optimized, MVCC fit
-- [ADR-003: Joint Consensus](docs/decisions/003-joint-consensus-membership.md) — two-phase safety guarantee
-- [ADR-004: OCC Transactions](docs/decisions/004-occ-transactions.md) — Raft integration, no deadlocks
-- [ADR-005: gRPC + Protobuf](docs/decisions/005-grpc-for-rpcs.md) — streaming, type safety
-- [Raft Internals](docs/internals/raft-consensus.md) — deep-dive into the consensus implementation
-- [Storage Internals](docs/internals/storage-engine.md) — LSM-tree, WAL, MVCC, compaction
-- [Known Limitations](docs/limitations.md) — honest scope boundaries and future work
 
 ## License
 
