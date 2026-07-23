@@ -18,7 +18,7 @@ Raft implements leader election with pre-vote algorithm, log replication, snapsh
 - **Leases**: grant/keepalive/revoke with auto-expiry, distributed locks via key attachment
 - **Admin API**: add/remove nodes, transfer leadership, drain node, trigger compaction, backup/restore
 - **Observability**: 27 Prometheus metrics, `/health` + `/ready` endpoints, structured JSON logging
-- **Chaos testing**: network partition injection, disk failure simulation, clock skew, in-process cluster harness
+
 
 ## What Raft Does Not Do
 
@@ -107,19 +107,6 @@ raft/
 ├── benches/               Criterion storage benchmarks
 └── .github/workflows/     CI: test + lint + bench on every push
 ```
-
-## Testing
-
-| Category | Count | What It Proves |
-| --- | --- | --- |
-| Storage engine | 48 | WAL crash recovery, compaction, bloom filters, key encoding |
-| MVCC + transactions | 24 | Snapshot isolation, OCC conflict detection, TTL, range scans |
-| Raft consensus | 73 | Elections, replication, snapshots, read index, transfer, joint consensus |
-| Server integration | 37 | Apply loop, watch events, lease expiry, backup format, HTTP endpoints, metrics |
-| Chaos framework | 34 | Network partitions, disk failures, clock skew, cluster orchestration |
-| Cluster integration | 8 | Multi-node election, replication, failover, snapshot install |
-| Common + client | 6 | Metrics encoding, leader hint parsing |
-
 
 ## License
 
